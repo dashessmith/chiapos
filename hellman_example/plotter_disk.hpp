@@ -49,7 +49,7 @@ const uint32_t kMaxMatchesSingleEntry = 30;
 struct Phase3Results {
     // Pointers to each table start byte in the plot file
     vector<uint64_t> plot_table_begin_pointers;
-    // Pointers to each table start byet in the final file
+    // Pointers to each table start byte in the final file
     vector<uint64_t> final_table_begin_pointers;
     // Number of entries written for f7
     uint64_t final_entries_written;
@@ -266,7 +266,7 @@ class DiskPlotter {
         uint32_t bucket_log = floor(log2(kNumSortBuckets));
 
         // Instead of computing f1(1), f1(2), etc, for each x, we compute them in batches
-        // to increase CPU efficency.
+        // to increase CPU efficiency.
         for (uint64_t lp = 0; lp <= (((uint64_t)1) << (k-kBatchSizes)); lp++) {
             // For each pair x, y in the batch
             for (auto kv : f1.CalculateBuckets(Bits(x, k), 2 << (kBatchSizes - 1))) {
