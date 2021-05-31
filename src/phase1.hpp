@@ -156,11 +156,11 @@ void* phase1_thread(THREADDATA* ptd)
     uint64_t threadstripes = (totalstripes + globals.num_threads - 1) / globals.num_threads;
 
     for (uint64_t stripe = 0; stripe < threadstripes; stripe++) {
-        // thread stripe rand [pos, endpos) entries
+        // thread stripe rand [pos, endpos) entries, table entries offset
         uint64_t pos = (stripe * globals.num_threads + ptd->index) * globals.stripe_size;
         uint64_t const endpos = pos + globals.stripe_size + 1;  // one y entry value overlap
         // stripe begin bytes, pos in bytes
-        uint64_t left_reader = pos * entry_size_bytes;
+        uint64_t left_reader = pos * entry_size_bytes;  // table bytes offset
         uint64_t left_writer_count = 0;
         uint64_t stripe_left_writer_count = 0;
         uint64_t stripe_start_correction = 0xffffffffffffffff;
@@ -206,18 +206,21 @@ void* phase1_thread(THREADDATA* ptd)
             stripe_start_correction = 0;
         }
         // first thread goes first
-        Sem::Wait(ptd->theirs);
+        Sem::Wait(ptd->theirs);  // why not use std::conditional_variable
         // first thread left_reader is 0
+        // check if still has enough buffer to read, if not or nearly out, read next bucket
         need_new_bucket = globals.L_sort_manager->CloseToNewBucket(left_reader);
         if (need_new_bucket) {
-            if (!first_thread) {  // let first thread do it
+            if (!first_thread) {  // let first thread do it, without wait
                 Sem::Wait(ptd->theirs);
             }
+            // every thread will try to trig new, in queue
             globals.L_sort_manager->TriggerNewBucket(left_reader);
         }
-        if (!last_thread) {
+        if (!last_thread) {  // first thread is not waiting
             // Do not post if we are the last thread, because first thread has already
             // waited for us to finish when it starts
+            // each once
             Sem::Post(ptd->mine);  // next thread start, besides first thread
         }
 

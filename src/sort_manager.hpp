@@ -247,8 +247,8 @@ private:
 
     bool done = false;
 
-    uint64_t final_position_start = 0;
-    uint64_t final_position_end = 0;
+    uint64_t final_position_start = 0;// buffer start pos in bytes 
+    uint64_t final_position_end = 0; // buffer read in in bytes 
     uint64_t next_bucket_to_sort = 0;
     std::unique_ptr<uint8_t[]> entry_buf_;
     strategy_t strategy_;
