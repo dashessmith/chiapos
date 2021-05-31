@@ -21,18 +21,16 @@
 #include <string>
 #include <vector>
 
-#include "chia_filesystem.hpp"
-
 #include "./bits.hpp"
 #include "./calculate_bucket.hpp"
 #include "./disk.hpp"
 #include "./quicksort.hpp"
 #include "./uniformsort.hpp"
+#include "chia_filesystem.hpp"
 #include "disk.hpp"
 #include "exceptions.hpp"
 
-enum class strategy_t : uint8_t
-{
+enum class strategy_t : uint8_t {
     uniform,
     quicksort,
 
@@ -49,20 +47,20 @@ public:
         uint32_t const num_buckets,
         uint32_t const log_num_buckets,
         uint16_t const entry_size,
-        const std::string &tmp_dirname,
-        const std::string &filename,
+        const std::string& tmp_dirname,
+        const std::string& filename,
         uint32_t begin_bits,
         uint64_t const stripe_size,
         strategy_t const sort_strategy = strategy_t::uniform)
-        : memory_size_(memory_size)
-        , entry_size_(entry_size)
-        , begin_bits_(begin_bits)
-        , log_num_buckets_(log_num_buckets)
-        , prev_bucket_buf_size(
-            2 * (stripe_size + 10 * (kBC / pow(2, kExtraBits))) * entry_size)
-        // 7 bytes head-room for SliceInt64FromBytes()
-        , entry_buf_(new uint8_t[entry_size + 7])
-        , strategy_(sort_strategy)
+        : memory_size_(memory_size),
+          entry_size_(entry_size),
+          begin_bits_(begin_bits),
+          log_num_buckets_(log_num_buckets),
+          prev_bucket_buf_size(2 * (stripe_size + 10 * (kBC / pow(2, kExtraBits))) * entry_size)
+          // 7 bytes head-room for SliceInt64FromBytes()
+          ,
+          entry_buf_(new uint8_t[entry_size + 7]),
+          strategy_(sort_strategy)
     {
         // Cross platform way to concatenate paths, gulrak library.
         std::vector<fs::path> bucket_filenames = std::vector<fs::path>();
@@ -77,18 +75,17 @@ public:
                 fs::path(filename + ".sort_bucket_" + bucket_number_padded.str() + ".tmp");
             fs::remove(bucket_filename);
 
-            buckets_.emplace_back(
-                FileDisk(bucket_filename));
+            buckets_.emplace_back(FileDisk(bucket_filename));
         }
     }
 
-    void AddToCache(const Bits &entry)
+    void AddToCache(const Bits& entry)
     {
         entry.ToBytes(entry_buf_.get());
         return AddToCache(entry_buf_.get());
     }
 
-    void AddToCache(const uint8_t *entry)
+    void AddToCache(const uint8_t* entry)
     {
         if (this->done) {
             throw InvalidValueException("Already finished.");
@@ -123,10 +120,7 @@ public:
         FreeMemory();
     }
 
-    std::string GetFileName() override
-    {
-        return "<SortManager>";
-    }
+    std::string GetFileName() override { return "<SortManager>"; }
 
     void FreeMemory() override
     {
@@ -142,7 +136,7 @@ public:
         // last reading pass over them)
     }
 
-    uint8_t *ReadEntry(uint64_t position)
+    uint8_t* ReadEntry(uint64_t position)
     {
         if (position < this->final_position_start) {
             if (!(position >= this->prev_bucket_position_start)) {
@@ -166,6 +160,7 @@ public:
         return memory_start_.get() + (position - this->final_position_start);
     }
 
+    // @position bytes in bucket, first thread @postion is zero
     bool CloseToNewBucket(uint64_t position) const
     {
         if (!(position <= this->final_position_end)) {
@@ -222,9 +217,7 @@ public:
     }
 
 private:
-
-    struct bucket_t
-    {
+    struct bucket_t {
         bucket_t(FileDisk f) : underlying_file(std::move(f)), file(&underlying_file, 0) {}
 
         // The amount of data written to the disk bucket
@@ -285,19 +278,17 @@ private:
         if (bucket_entries > entries_fit_in_memory) {
             throw InsufficientMemoryException(
                 "Not enough memory for sort in memory. Need to sort " +
-                std::to_string(b.write_pointer / (1024.0 * 1024.0 * 1024.0)) +
-                "GiB");
+                std::to_string(b.write_pointer / (1024.0 * 1024.0 * 1024.0)) + "GiB");
         }
-        bool const last_bucket = (bucket_i == buckets_.size() - 1)
-            || buckets_[bucket_i + 1].write_pointer == 0;
+        bool const last_bucket =
+            (bucket_i == buckets_.size() - 1) || buckets_[bucket_i + 1].write_pointer == 0;
 
-        bool const force_quicksort = (strategy_ == strategy_t::quicksort)
-            || (strategy_ == strategy_t::quicksort_last && last_bucket);
+        bool const force_quicksort = (strategy_ == strategy_t::quicksort) ||
+                                     (strategy_ == strategy_t::quicksort_last && last_bucket);
 
         // Do SortInMemory algorithm if it fits in the memory
         // (number of entries required * entry_size_) <= total memory available
-        if (!force_quicksort &&
-            Util::RoundSize(bucket_entries) * entry_size_ <= memory_size_) {
+        if (!force_quicksort && Util::RoundSize(bucket_entries) * entry_size_ <= memory_size_) {
             std::cout << "\tBucket " << bucket_i << " uniform sort. Ram: " << std::fixed
                       << std::setprecision(3) << have_ram << "GiB, u_sort min: " << u_ram
                       << "GiB, qs min: " << qs_ram << "GiB." << std::endl;
@@ -317,7 +308,8 @@ private:
                       << "GiB, qs min: " << qs_ram << "GiB. force_qs: " << force_quicksort
                       << std::endl;
             b.underlying_file.Read(0, memory_start_.get(), bucket_entries * entry_size_);
-            QuickSort::Sort(memory_start_.get(), entry_size_, bucket_entries, begin_bits_ + log_num_buckets_);
+            QuickSort::Sort(
+                memory_start_.get(), entry_size_, bucket_entries, begin_bits_ + log_num_buckets_);
         }
 
         // Deletes the bucket file

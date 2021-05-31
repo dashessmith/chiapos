@@ -122,10 +122,11 @@ void* phase1_thread(THREADDATA* ptd)
     uint64_t const right_entry_size_bytes = ptd->right_entry_size_bytes;
     uint8_t const k = ptd->k;
     uint8_t const table_index = ptd->table_index;
-    uint8_t const metadata_size = ptd->metadata_size;
+    // uint8_t const metadata_size = kVectorLens[table_index + 1] * k;
+    uint8_t const metadata_size = ptd->metadata_size;  // from kVectorLens
     uint32_t const entry_size_bytes = ptd->entry_size_bytes;
     uint8_t const pos_size = ptd->pos_size;
-    uint64_t const prevtableentries = ptd->prevtableentries;
+    uint64_t const prevtableentries = ptd->prevtableentries;  // 1 << k 32
     uint32_t const compressed_entry_size_bytes = ptd->compressed_entry_size_bytes;
     std::vector<FileDisk>* ptmp_1_disks = ptd->ptmp_1_disks;
 
@@ -155,8 +156,10 @@ void* phase1_thread(THREADDATA* ptd)
     uint64_t threadstripes = (totalstripes + globals.num_threads - 1) / globals.num_threads;
 
     for (uint64_t stripe = 0; stripe < threadstripes; stripe++) {
+        // thread stripe rand [pos, endpos) entries
         uint64_t pos = (stripe * globals.num_threads + ptd->index) * globals.stripe_size;
-        uint64_t const endpos = pos + globals.stripe_size + 1;  // one y value overlap
+        uint64_t const endpos = pos + globals.stripe_size + 1;  // one y entry value overlap
+        // stripe begin bytes, pos in bytes
         uint64_t left_reader = pos * entry_size_bytes;
         uint64_t left_writer_count = 0;
         uint64_t stripe_left_writer_count = 0;
@@ -195,18 +198,19 @@ void* phase1_thread(THREADDATA* ptd)
             future_entries_to_write;
         std::vector<PlotEntry*> not_dropped;  // Pointers are stored to avoid copying entries
 
-        if (pos == 0) {
+        if (pos == 0) {  // first thread
             bMatch = true;
             bStripePregamePair = true;
             bStripeStartPair = true;
             stripe_left_writer_count = 0;
             stripe_start_correction = 0;
         }
-
+        // first thread goes first
         Sem::Wait(ptd->theirs);
+        // first thread left_reader is 0
         need_new_bucket = globals.L_sort_manager->CloseToNewBucket(left_reader);
         if (need_new_bucket) {
-            if (!first_thread) {
+            if (!first_thread) {  // let first thread do it
                 Sem::Wait(ptd->theirs);
             }
             globals.L_sort_manager->TriggerNewBucket(left_reader);
@@ -214,7 +218,7 @@ void* phase1_thread(THREADDATA* ptd)
         if (!last_thread) {
             // Do not post if we are the last thread, because first thread has already
             // waited for us to finish when it starts
-            Sem::Post(ptd->mine);
+            Sem::Post(ptd->mine);  // next thread start, besides first thread
         }
 
         while (pos < prevtableentries + 1) {
@@ -603,7 +607,7 @@ std::vector<uint64_t> RunPhase1(
     uint8_t const flags)
 {
     std::cout << "Computing table 1" << std::endl;
-    globals.stripe_size = stripe_size;
+    globals.stripe_size = stripe_size;  // default 65535
     globals.num_threads = num_threads;
     Timer f1_start_time;
     F1Calculator f1(k, id);
@@ -705,8 +709,7 @@ std::vector<uint64_t> RunPhase1(
         for (int i = 0; i < num_threads; i++) {
             td[i].index = i;
             td[i].mine = &mutex[i];
-            td[i].theirs = &mutex[(num_threads + i - 1) % num_threads];
-
+            td[i].theirs = &mutex[(num_threads + i - 1) % num_threads];  // previous mutex
             td[i].prevtableentries = prevtableentries;
             td[i].right_entry_size_bytes = right_entry_size_bytes;
             td[i].k = k;
@@ -719,7 +722,7 @@ std::vector<uint64_t> RunPhase1(
 
             threads.emplace_back(phase1_thread, &td[i]);
         }
-        Sem::Post(&mutex[num_threads - 1]);
+        Sem::Post(&mutex[num_threads - 1]);  // launch first thread, wait for the last mutex
 
         for (auto& t : threads) {
             t.join();
