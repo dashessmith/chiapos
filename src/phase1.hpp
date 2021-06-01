@@ -244,11 +244,12 @@ void* phase1_thread(THREADDATA* ptd)
             // within L table.
             left_entry.pos = pos;     // entry index in the whole table
             left_entry.used = false;  // initiate not used
+            // no matter what kBC is  y is extract some where from the entry bytes
             uint64_t y_bucket = left_entry.y / kBC;
 
             if (!bMatch) {
                 if (ignorebucket == 0xffffffffffffffff) {
-                    ignorebucket = y_bucket;
+                    ignorebucket = y_bucket;  // set to current bucket if not set
                 } else {
                     if ((y_bucket != ignorebucket)) {
                         bucket = y_bucket;
@@ -256,7 +257,7 @@ void* phase1_thread(THREADDATA* ptd)
                     }
                 }
             }
-            if (!bMatch) {
+            if (!bMatch) {  // filered by same thread
                 stripe_left_writer_count++;
                 R_position_base = stripe_left_writer_count;
                 pos++;
@@ -268,7 +269,7 @@ void* phase1_thread(THREADDATA* ptd)
                 bucket_L.emplace_back(left_entry);
             } else if (y_bucket == bucket + 1) {
                 bucket_R.emplace_back(left_entry);
-            } else {
+            } else {  // y_bucket != bucket && y_bucket != bucket + 1
                 // cout << "matching! " << bucket << " and " << bucket + 1 << endl;
                 // This is reached when we have finished adding stuff to bucket_R and bucket_L,
                 // so now we can compare entries in both buckets to find matches. If two entries
