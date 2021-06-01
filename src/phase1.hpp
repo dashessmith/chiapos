@@ -236,14 +236,14 @@ void* phase1_thread(THREADDATA* ptd)
                 // Reads a left entry from disk
                 uint8_t* left_buf = globals.L_sort_manager->ReadEntry(left_reader);
                 left_reader += entry_size_bytes;
-
+                // [entry_bytes]
                 left_entry = GetLeftEntry(table_index, left_buf, k, metadata_size, pos_size);
             }
 
             // This is not the pos that was read from disk,but the position of the entry we read,
             // within L table.
-            left_entry.pos = pos;
-            left_entry.used = false;
+            left_entry.pos = pos;     // entry index in the whole table
+            left_entry.used = false;  // initiate not used
             uint64_t y_bucket = left_entry.y / kBC;
 
             if (!bMatch) {

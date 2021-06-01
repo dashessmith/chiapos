@@ -84,7 +84,7 @@ const std::string kFormatDescription = "v1.0";
 
 struct PlotEntry {
     uint64_t y;
-    uint64_t pos;
+    uint64_t pos;  // entry index in the table
     uint64_t offset;
     uint128_t left_metadata;   // We only use left_metadata, unless metadata does not
     uint128_t right_metadata;  // fit in 128 bits.

@@ -89,10 +89,7 @@ public:
         chacha8_keysetup(&this->enc_ctx_, enc_key, 256, NULL);
     }
 
-    inline ~F1Calculator()
-    {
-        delete[] buf_;
-    }
+    inline ~F1Calculator() { delete[] buf_; }
 
     // Disable copying
     F1Calculator(const F1Calculator&) = delete;
@@ -161,7 +158,7 @@ public:
 
     // F1(x) values for x in range [first_x, first_x + n) are placed in res[].
     // n must not be more than 1 << kBatchSizes.
-    void CalculateBuckets(uint64_t first_x, uint64_t n, uint64_t *res)
+    void CalculateBuckets(uint64_t first_x, uint64_t n, uint64_t* res)
     {
         uint64_t start = first_x * k_ / kF1BlockSizeBits;
         // 'end' is one past the last keystream block number to be generated
@@ -187,9 +184,10 @@ private:
     uint8_t k_{};
 
     // ChaCha8 context
-    struct chacha8_ctx enc_ctx_{};
+    struct chacha8_ctx enc_ctx_ {
+    };
 
-    uint8_t *buf_{};
+    uint8_t* buf_{};
 };
 
 struct rmap_item {
@@ -279,8 +277,8 @@ public:
     inline int32_t FindMatches(
         const std::vector<PlotEntry>& bucket_L,
         const std::vector<PlotEntry>& bucket_R,
-        uint16_t *idx_L,
-        uint16_t *idx_R)
+        uint16_t* idx_L,
+        uint16_t* idx_R)
     {
         int32_t idx_count = 0;
         uint16_t parity = (bucket_L[0].y / kBC) % 2;
@@ -307,9 +305,9 @@ public:
             for (uint8_t i = 0; i < kExtraBitsPow; i++) {
                 uint16_t r_target = L_targets[parity][r][i];
                 for (size_t j = 0; j < rmap[r_target].count; j++) {
-                    if(idx_L != nullptr) {
-                        idx_L[idx_count]=pos_L;
-                        idx_R[idx_count]=rmap[r_target].pos + j;
+                    if (idx_L != nullptr) {
+                        idx_L[idx_count] = pos_L;
+                        idx_R[idx_count] = rmap[r_target].pos + j;
                     }
                     idx_count++;
                 }
