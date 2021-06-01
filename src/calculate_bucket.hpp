@@ -261,8 +261,9 @@ public:
         return std::make_pair(Bits(f, k_ + kExtraBits), c);
     }
 
-    // Given two buckets with entries (y values), computes which y values match, and returns a list
-    // of the pairs of indices into bucket_L and bucket_R. Indices l and r match iff:
+    // Given two buckets with entries (y values), computes which y values match,
+    // and returns a list of the pairs of indices into bucket_L and bucket_R.
+    // Indices l and r match iff:
     //   let  yl = bucket_L[l].y,  yr = bucket_R[r].y
     //
     //   For any 0 <= m < kExtraBitsPow:
@@ -270,10 +271,12 @@ public:
     //   (yr % kBC) / kC - (yl % kBC) / kC = m   (mod kB)  AND
     //   (yr % kBC) % kC - (yl % kBC) % kC = (2m + (yl/kBC) % 2)^2   (mod kC)
     //
-    // Instead of doing the naive algorithm, which is an O(kExtraBitsPow * N^2) comparisons on
-    // bucket length, we can store all the R values and lookup each of our 32 candidates to see if
-    // any R value matches. This function can be further optimized by removing the inner loop, and
-    // being more careful with memory allocation.
+    // Instead of doing the naive algorithm, which is an O(kExtraBitsPow * N^2)
+    // comparisons on bucket length, we can store all the R values and lookup each
+    // of our 32 candidates to see if any R value matches.
+    //
+    // This function can be further optimized by removing
+    // the inner loop, and being more careful with memory allocation.
     inline int32_t FindMatches(
         const std::vector<PlotEntry>& bucket_L,
         const std::vector<PlotEntry>& bucket_R,
@@ -292,6 +295,7 @@ public:
         for (size_t pos_R = 0; pos_R < bucket_R.size(); pos_R++) {
             uint64_t r_y = bucket_R[pos_R].y - remove;
 
+            // record same r_y first accure pos
             if (!rmap[r_y].count) {
                 rmap[r_y].pos = pos_R;
             }
@@ -320,7 +324,7 @@ private:
     uint8_t k_{};
     uint8_t table_index_{};
     std::vector<struct rmap_item> rmap;
-    std::vector<uint16_t> rmap_clean;
+    std::vector<uint16_t> rmap_clean;  // every bucket_r r_y values
 };
 
 #endif  // SRC_CPP_CALCULATE_BUCKET_HPP_

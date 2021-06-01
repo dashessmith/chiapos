@@ -224,6 +224,8 @@ void* phase1_thread(THREADDATA* ptd)
             Sem::Post(ptd->mine);  // next thread start, besides first thread
         }
 
+        // after thread had it's buffer
+        // basic check, won't loop for that much
         while (pos < prevtableentries + 1) {
             PlotEntry left_entry = PlotEntry();
             if (pos >= prevtableentries) {
@@ -254,6 +256,9 @@ void* phase1_thread(THREADDATA* ptd)
                     if ((y_bucket != ignorebucket)) {
                         bucket = y_bucket;
                         bMatch = true;
+                        // only set once in the inner loop
+                        // start matching
+                        // set @bucket baseline
                     }
                 }
             }
@@ -264,12 +269,15 @@ void* phase1_thread(THREADDATA* ptd)
                 continue;
             }
 
+            // if come here, bMatch has to be true
+            // bucket has set
             // Keep reading left entries into bucket_L and R, until we run out of things
-            if (y_bucket == bucket) {
-                bucket_L.emplace_back(left_entry);
-            } else if (y_bucket == bucket + 1) {
+            // @y_bucket new comer, y_bucket is increaed, as underlying buffer is sorted
+            if (y_bucket == bucket) {               // bucket = y_bucket
+                bucket_L.emplace_back(left_entry);  // @bucket_L/R stripe loop variable
+            } else if (y_bucket == bucket + 1) {    // y_bucket == 1 ?
                 bucket_R.emplace_back(left_entry);
-            } else {  // y_bucket != bucket && y_bucket != bucket + 1
+            } else {  // y_bucket > bucket + 1, means no more y_bucket will less then this
                 // cout << "matching! " << bucket << " and " << bucket + 1 << endl;
                 // This is reached when we have finished adding stuff to bucket_R and bucket_L,
                 // so now we can compare entries in both buckets to find matches. If two entries
@@ -284,6 +292,7 @@ void* phase1_thread(THREADDATA* ptd)
 
                     if (!bucket_R.empty()) {
                         // Compute all matches between the two buckets and save indeces.
+                        // @f is a function variable, which has some state
                         idx_count = f.FindMatches(bucket_L, bucket_R, idx_L, idx_R);
                         if (idx_count >= 10000) {
                             std::cout << "sanity check: idx_count exceeded 10000!" << std::endl;
