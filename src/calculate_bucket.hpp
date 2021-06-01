@@ -22,6 +22,7 @@
 #include <bitset>
 #include <iostream>
 #include <map>
+#include <set>
 #include <utility>
 #include <vector>
 
@@ -191,8 +192,8 @@ private:
 };
 
 struct rmap_item {
-    uint16_t count : 4;
-    uint16_t pos : 12;
+    uint16_t count : 4;  // accur time
+    uint16_t pos : 12;   // first accur index in bucket
 };
 
 // Class to evaluate F2 .. F7.
@@ -287,10 +288,19 @@ public:
         uint16_t parity = (bucket_L[0].y / kBC) % 2;
 
         for (size_t yl : rmap_clean) {
-            this->rmap[yl].count = 0;
+            this->rmap[yl].count = 0;  // leave the pos
         }
         rmap_clean.clear();
 
+        // r_y
+        //  ^
+        //  | pos ...................
+        //  | pos ........
+        //  | pos ........................
+        //  | pos ........................
+        //  | pos ...............
+        // ------------------------------------------> pos_r
+        // @rmap
         uint64_t remove = (bucket_R[0].y / kBC) * kBC;
         for (size_t pos_R = 0; pos_R < bucket_R.size(); pos_R++) {
             uint64_t r_y = bucket_R[pos_R].y - remove;
@@ -303,6 +313,14 @@ public:
             rmap_clean.push_back(r_y);
         }
 
+        //  r     i(64)
+        //  ^     ^
+        //  |    /
+        //  |   /
+        //  |  /
+        //  | /
+        //  |/
+        // ------------------------------------------> pos_l
         uint64_t remove_y = remove - kBC;
         for (size_t pos_L = 0; pos_L < bucket_L.size(); pos_L++) {
             uint64_t r = bucket_L[pos_L].y - remove_y;
@@ -323,8 +341,8 @@ public:
 private:
     uint8_t k_{};
     uint8_t table_index_{};
-    std::vector<struct rmap_item> rmap;
-    std::vector<uint16_t> rmap_clean;  // every bucket_r r_y values
+    std::vector<struct rmap_item> rmap;  // it's not a map
+    std::vector<uint16_t> rmap_clean;    // every bucket_r r_y values
 };
 
 #endif  // SRC_CPP_CALCULATE_BUCKET_HPP_

@@ -150,6 +150,12 @@ void* phase1_thread(THREADDATA* ptd)
     std::unique_ptr<uint16_t[]> L_position_map(new uint16_t[position_map_size]);
     std::unique_ptr<uint16_t[]> R_position_map(new uint16_t[position_map_size]);
 
+    // ^^ above thread avaiables
+
+    // e e e e e e e e e e e e e e e e e e e e e e e e e e e e e e e e e e e e e e e e e e e e e e
+    // [stripe               ] [stripe               ] [stripe               ] [stripe           ]
+    // [thread1              ] [thread2              ] [thread1              ] [thread2          ]
+
     // Start at left table pos = 0 and iterate through the whole table. Note that the left table
     // will already be sorted by y
     uint64_t totalstripes = (prevtableentries + globals.stripe_size - 1) / globals.stripe_size;
@@ -183,7 +189,7 @@ void* phase1_thread(THREADDATA* ptd)
         bool bThirdStripeOvertimePair = false;
 
         bool bStripePregamePair = false;
-        bool bStripeStartPair = false;
+        bool bStripeStartPair = false;  // first pair of bucket l ,r
         bool need_new_bucket = false;
         bool first_thread = ptd->index % globals.num_threads == 0;
         bool last_thread = ptd->index % globals.num_threads == globals.num_threads - 1;
@@ -226,6 +232,7 @@ void* phase1_thread(THREADDATA* ptd)
 
         // after thread had it's buffer
         // basic check, won't loop for that much
+        // for each entry in the stripe
         while (pos < prevtableentries + 1) {
             PlotEntry left_entry = PlotEntry();
             if (pos >= prevtableentries) {
@@ -367,6 +374,7 @@ void* phase1_thread(THREADDATA* ptd)
                             new_left_entry <<= 64 - (table_index == 1 ? k : pos_size + kOffsetSize);
                             Util::IntToEightBytes(tmp_buf, new_left_entry);
                         }
+
                         stripe_left_writer_count++;
                     }
 
