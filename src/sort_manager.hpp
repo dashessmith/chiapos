@@ -136,6 +136,7 @@ public:
         // last reading pass over them)
     }
 
+    // position: bytes index in the whole left table
     uint8_t* ReadEntry(uint64_t position)
     {
         if (position < this->final_position_start) {
@@ -243,12 +244,15 @@ private:
 
     uint64_t prev_bucket_buf_size;
     std::unique_ptr<uint8_t[]> prev_bucket_buf_;
-    uint64_t prev_bucket_position_start = 0;
 
     bool done = false;
 
-    uint64_t final_position_start = 0;// buffer start pos in bytes 
-    uint64_t final_position_end = 0; // buffer read in in bytes 
+    // |         prev bucket buffer   |           current bucket                |
+    // prev_bucket_position_start ... final_position_start ... final_position_end
+    //                        position ^ seek there
+    uint64_t prev_bucket_position_start = 0;
+    uint64_t final_position_start = 0;  // buffer start pos in bytes
+    uint64_t final_position_end = 0;    // buffer read in in bytes
     uint64_t next_bucket_to_sort = 0;
     std::unique_ptr<uint8_t[]> entry_buf_;
     strategy_t strategy_;

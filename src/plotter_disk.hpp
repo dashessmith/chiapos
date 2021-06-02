@@ -28,23 +28,22 @@
 #include <fstream>
 #include <iostream>
 #include <map>
+#include <memory>
 #include <string>
 #include <vector>
-#include <memory>
 
-#include "chia_filesystem.hpp"
-
+#include "b17phase2.hpp"
+#include "b17phase3.hpp"
+#include "b17phase4.hpp"
 #include "calculate_bucket.hpp"
+#include "chia_filesystem.hpp"
 #include "encoding.hpp"
 #include "exceptions.hpp"
-#include "phases.hpp"
 #include "phase1.hpp"
 #include "phase2.hpp"
-#include "b17phase2.hpp"
 #include "phase3.hpp"
-#include "b17phase3.hpp"
 #include "phase4.hpp"
-#include "b17phase4.hpp"
+#include "phases.hpp"
 #include "pos_constants.hpp"
 #include "sort_manager.hpp"
 #include "util.hpp"
@@ -205,8 +204,7 @@ public:
         {
             // Scope for FileDisk
             std::vector<FileDisk> tmp_1_disks;
-            for (auto const& fname : tmp_1_filenames)
-                tmp_1_disks.emplace_back(fname);
+            for (auto const& fname : tmp_1_filenames) tmp_1_disks.emplace_back(fname);
 
             FileDisk tmp2_disk(tmp_2_filename);
 
@@ -232,16 +230,16 @@ public:
                 phases_flags);
             p1.PrintElapsed("Time for phase 1 =");
 
-            uint64_t finalsize=0;
+            uint64_t finalsize = 0;
 
-            if((phases_flags & ENABLE_BITFIELD) == 0)
-            {
+            if ((phases_flags & ENABLE_BITFIELD) == 0) {
                 // Memory to be used for sorting and buffers
                 std::unique_ptr<uint8_t[]> memory(new uint8_t[memory_size + 7]);
 
-                std::cout << std::endl
-                      << "Starting phase 2/4: Backpropagation without bitfield into tmp files... "
-                      << Timer::GetNow();
+                std::cout
+                    << std::endl
+                    << "Starting phase 2/4: Backpropagation without bitfield into tmp files... "
+                    << Timer::GetNow();
 
                 Timer p2;
                 std::vector<uint64_t> backprop_table_sizes = b17RunPhase2(
@@ -262,8 +260,8 @@ public:
                 uint32_t header_size = WriteHeader(tmp2_disk, k, id, memo, memo_len);
 
                 std::cout << std::endl
-                      << "Starting phase 3/4: Compression without bitfield from tmp files into " << tmp_2_filename
-                      << " ... " << Timer::GetNow();
+                          << "Starting phase 3/4: Compression without bitfield from tmp files into "
+                          << tmp_2_filename << " ... " << Timer::GetNow();
                 Timer p3;
                 b17Phase3Results res = b17RunPhase3(
                     memory.get(),
@@ -282,17 +280,16 @@ public:
                 p3.PrintElapsed("Time for phase 3 =");
 
                 std::cout << std::endl
-                      << "Starting phase 4/4: Write Checkpoint tables into " << tmp_2_filename
-                      << " ... " << Timer::GetNow();
+                          << "Starting phase 4/4: Write Checkpoint tables into " << tmp_2_filename
+                          << " ... " << Timer::GetNow();
                 Timer p4;
                 b17RunPhase4(k, k + 1, tmp2_disk, res, phases_flags, 16);
                 p4.PrintElapsed("Time for phase 4 =");
                 finalsize = res.final_table_begin_pointers[11];
-            }
-            else {
+            } else {
                 std::cout << std::endl
-                      << "Starting phase 2/4: Backpropagation into tmp files... "
-                      << Timer::GetNow();
+                          << "Starting phase 2/4: Backpropagation into tmp files... "
+                          << Timer::GetNow();
 
                 Timer p2;
                 Phase2Results res2 = RunPhase2(
@@ -312,8 +309,8 @@ public:
                 uint32_t header_size = WriteHeader(tmp2_disk, k, id, memo, memo_len);
 
                 std::cout << std::endl
-                      << "Starting phase 3/4: Compression from tmp files into " << tmp_2_filename
-                      << " ... " << Timer::GetNow();
+                          << "Starting phase 3/4: Compression from tmp files into "
+                          << tmp_2_filename << " ... " << Timer::GetNow();
                 Timer p3;
                 Phase3Results res = RunPhase3(
                     k,
@@ -330,8 +327,8 @@ public:
                 p3.PrintElapsed("Time for phase 3 =");
 
                 std::cout << std::endl
-                      << "Starting phase 4/4: Write Checkpoint tables into " << tmp_2_filename
-                      << " ... " << Timer::GetNow();
+                          << "Starting phase 4/4: Write Checkpoint tables into " << tmp_2_filename
+                          << " ... " << Timer::GetNow();
                 Timer p4;
                 RunPhase4(k, k + 1, tmp2_disk, res, phases_flags, 16);
                 p4.PrintElapsed("Time for phase 4 =");
@@ -352,9 +349,8 @@ public:
                       << std::endl;
 
             std::cout << "Final File size: "
-                      << static_cast<double>(finalsize) /
-                             (1024 * 1024 * 1024)
-                      << " GiB" << std::endl;
+                      << static_cast<double>(finalsize) / (1024 * 1024 * 1024) << " GiB"
+                      << std::endl;
             all_phases.PrintElapsed("Total time =");
         }
 

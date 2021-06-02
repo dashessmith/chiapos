@@ -173,9 +173,9 @@ void* phase1_thread(THREADDATA* ptd)
         uint64_t right_writer_count = 0;
         uint64_t matches = 0;  // Total matches
 
-        // This is a sliding window of entries, since things in bucket i can match with things in
-        // bucket
-        // i + 1. At the end of each bucket, we find matches between the two previous buckets.
+        // This is a sliding window of entries, since things in bucket i
+        // can match with things in bucket  i + 1. At the end of each bucket,
+        // we find matches between the two previous buckets.
         std::vector<PlotEntry> bucket_L;
         std::vector<PlotEntry> bucket_R;
 
@@ -230,10 +230,10 @@ void* phase1_thread(THREADDATA* ptd)
             Sem::Post(ptd->mine);  // next thread start, besides first thread
         }
 
-        // after thread had it's buffer
-        // basic check, won't loop for that much
+        // after sortmgr(shared by all threads) had it's buffer
+        // sanity check, won't loop for that much
         // for each entry in the stripe
-        while (pos < prevtableentries + 1) {
+        while (pos <= prevtableentries) {
             PlotEntry left_entry = PlotEntry();
             if (pos >= prevtableentries) {
                 end_of_table = true;
@@ -485,15 +485,17 @@ void* phase1_thread(THREADDATA* ptd)
                 }
 
                 if (y_bucket == bucket + 2) {
-                    // We saw a bucket that is 2 more than the current, so we just set L = R, and R
-                    // = [entry]
+                    // We saw a bucket that is 2 more than the current,
+                    // so we just set L = R, and R = [entry]
+                    // _, L, R = L, R, y
                     bucket_L = std::move(bucket_R);
                     bucket_R.clear();
                     bucket_R.emplace_back(std::move(left_entry));
                     ++bucket;
                 } else {
-                    // We saw a bucket that >2 more than the current, so we just set L = [entry],
-                    // and R = []
+                    // We saw a bucket that >2 more than the current,
+                    // so we just set L = [entry], and R = []
+                    // _, _, _, L, R = L, R, _, y, _
                     bucket = y_bucket;
                     bucket_L.clear();
                     bucket_L.emplace_back(std::move(left_entry));
@@ -571,10 +573,12 @@ void* F1thread(int const index, uint8_t const k, const uint8_t* id, std::mutex* 
 
     F1Calculator f1(k, id);
 
+    // 2^8 * 16 = 4096 bytes
     std::unique_ptr<uint8_t[]> right_writer_buf(new uint8_t[right_buf_entries * entry_size_bytes]);
 
     // Instead of computing f1(1), f1(2), etc, for each x, we compute them in batches
     // to increase CPU efficency.
+    // 2^12 * 2^(32 - 8) = 2^36
     for (uint64_t lp = index; lp <= (((uint64_t)1) << (k - kBatchSizes));
          lp = lp + globals.num_threads) {
         // For each pair x, y in the batch
@@ -599,7 +603,7 @@ void* F1thread(int const index, uint8_t const k, const uint8_t* id, std::mutex* 
 
         std::lock_guard<std::mutex> l(*smm);
 
-        // Write it out
+        // Write it out  256 * 16 = 4096 = 2^12
         for (uint32_t i = 0; i < right_writer_count; i++) {
             globals.L_sort_manager->AddToCache(&(right_writer_buf[i * entry_size_bytes]));
         }
@@ -779,7 +783,7 @@ std::vector<uint64_t> RunPhase1(
                 std::to_string(globals.matches) + " " + std::to_string(globals.right_writer_count));
         }
 
-        prevtableentries = globals.right_writer_count;
+        prevtableentries = globals.right_writer_count;  // entries count at rigth sortmgr
         table_timer.PrintElapsed("Forward propagation table time:");
         if (flags & SHOW_PROGRESS) {
             progress(1, table_index, 6);
