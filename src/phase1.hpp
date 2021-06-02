@@ -152,7 +152,11 @@ void* phase1_thread(THREADDATA* ptd)
 
     // ^^ above thread avaiables
 
-    // e e e e e e e e e e e e e e e e e e e e e e e e e e e e e e e e e e e e e e e e e e e e e e
+    //     / right meta
+    //    / left meta
+    //   / pos + offset
+    //  / y
+    // / e e e e e e e e e e e e e e e e e e e e e e e e e e e e e e e e e e e e e e e e e e e e e
     // [stripe               ] [stripe               ] [stripe               ] [stripe           ]
     // [thread1              ] [thread2              ] [thread1              ] [thread2          ]
 
@@ -217,17 +221,18 @@ void* phase1_thread(THREADDATA* ptd)
         // check if still has enough buffer to read, if not or nearly out, read next bucket
         need_new_bucket = globals.L_sort_manager->CloseToNewBucket(left_reader);
         if (need_new_bucket) {
-            if (!first_thread) {  // let first thread do it, without wait
-                Sem::Wait(ptd->theirs);
+            if (!first_thread) {         // let first thread do it, without wait
+                Sem::Wait(ptd->theirs);  // wait for prev one
             }
             // every thread will try to trig new, in queue
             globals.L_sort_manager->TriggerNewBucket(left_reader);
         }
-        if (!last_thread) {  // first thread is not waiting
+
+        // call prev thread  // first thread is not waiting
+        if (!last_thread) {
             // Do not post if we are the last thread, because first thread has already
-            // waited for us to finish when it starts
-            // each once
-            Sem::Post(ptd->mine);  // next thread start, besides first thread
+            // waited for us to finish when it starts each once
+            Sem::Post(ptd->mine);  // i'm done, wake up next one
         }
 
         // after sortmgr(shared by all threads) had it's buffer
