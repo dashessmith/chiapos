@@ -68,7 +68,7 @@ struct GlobalData {
     std::unique_ptr<SortManager> L_sort_manager;
     std::unique_ptr<SortManager> R_sort_manager;
     uint64_t left_writer_buf_entries;
-    uint64_t left_writer;
+    uint64_t left_writer;  // bytes already writen
     uint64_t right_writer;
     uint64_t stripe_size;
     uint8_t num_threads;
@@ -171,7 +171,7 @@ void* phase1_thread(THREADDATA* ptd)
         uint64_t const endpos = pos + globals.stripe_size + 1;  // one y entry value overlap
         // stripe begin bytes, pos in bytes
         uint64_t left_reader = pos * entry_size_bytes;  // table bytes offset
-        uint64_t left_writer_count = 0;
+        uint64_t left_writer_count = 0;                 // left write entries
         uint64_t stripe_left_writer_count = 0;
         uint64_t stripe_start_correction = 0xffffffffffffffff;
         uint64_t right_writer_count = 0;
@@ -389,6 +389,7 @@ void* phase1_thread(THREADDATA* ptd)
                     future_entries_to_write.clear();
 
                     for (int32_t i = 0; i < idx_count; i++) {
+                        // the matched pair
                         PlotEntry& L_entry = bucket_L[idx_L[i]];
                         PlotEntry& R_entry = bucket_R[idx_R[i]];
 
@@ -563,7 +564,7 @@ void* phase1_thread(THREADDATA* ptd)
 
         globals.matches += matches;
         Sem::Post(ptd->mine);
-    }
+    }  // for each stripe
 
     return 0;
 }
@@ -640,7 +641,7 @@ std::vector<uint64_t> RunPhase1(
     globals.stripe_size = stripe_size;  // default 65535
     globals.num_threads = num_threads;
     Timer f1_start_time;
-    F1Calculator f1(k, id);
+    F1Calculator _(k, id);  // init static variable
     uint64_t x = 0;
 
     uint32_t const t1_entry_size_bytes = EntrySizes::GetMaxEntrySize(k, 1, true);
@@ -685,6 +686,12 @@ std::vector<uint64_t> RunPhase1(
     // the next table. This is the left table index.
     for (uint8_t table_index = 1; table_index < 7; table_index++) {
         Timer table_timer;
+        // 1 => 32
+        // 2 => 64
+        // 3 => 128
+        // 4 => 128
+        // 5 => 96
+        // 6 => 64
         uint8_t const metadata_size = kVectorLens[table_index + 1] * k;
 
         // Determines how many bytes the entries in our left and right tables will take up.

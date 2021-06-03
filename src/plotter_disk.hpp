@@ -171,13 +171,22 @@ public:
         // Cross platform way to concatenate paths, gulrak library.
         std::vector<fs::path> tmp_1_filenames = std::vector<fs::path>();
 
-        // The table0 file will be used for sort on disk spare. tables 1-7 are stored in their own
-        // file.
+        // The table0 file will be used for sort on disk spare.
+        // tables 1-7 are stored in their own file.
+        // xxx/xxx.plot.sort.tmp
+        // xxx/xxx.plot.table1.sort.tmp
+        // xxx/xxx.plot.table2.sort.tmp
+        // xxx/xxx.plot.table3.sort.tmp
+        // xxx/xxx.plot.table4.sort.tmp
+        // xxx/xxx.plot.table5.sort.tmp
+        // xxx/xxx.plot.table6.sort.tmp
+        // xxx/xxx.plot.table7.sort.tmp
         tmp_1_filenames.push_back(fs::path(tmp_dirname) / fs::path(filename + ".sort.tmp"));
         for (size_t i = 1; i <= 7; i++) {
             tmp_1_filenames.push_back(
                 fs::path(tmp_dirname) / fs::path(filename + ".table" + std::to_string(i) + ".tmp"));
         }
+        // xxx/xxx.plot.2.tmp
         fs::path tmp_2_filename = fs::path(tmp2_dirname) / fs::path(filename + ".2.tmp");
         fs::path final_2_filename = fs::path(final_dirname) / fs::path(filename + ".2.tmp");
         fs::path final_filename = fs::path(final_dirname) / fs::path(filename);
