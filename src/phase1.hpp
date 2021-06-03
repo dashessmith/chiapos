@@ -186,6 +186,9 @@ void* phase1_thread(THREADDATA* ptd)
         uint64_t bucket = 0;
         bool end_of_table = false;  // We finished all entries in the left table
 
+        // at the edge of the stripe,
+        // one bucket may sperate seperate to adjacent stripes
+        // ignore the this bucket, which may cause data loss
         uint64_t ignorebucket = 0xffffffffffffffff;
         bool bMatch = false;
         bool bFirstStripeOvertimePair = false;
