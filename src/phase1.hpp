@@ -172,7 +172,7 @@ void* phase1_thread(THREADDATA* ptd)
         // stripe begin bytes, pos in bytes
         uint64_t left_reader = pos * entry_size_bytes;  // table bytes offset
         uint64_t left_writer_count = 0;
-        uint64_t stripe_left_writer_count = 0;
+        uint64_t stripe_left_writer_count = 0;  // stripe variable
         uint64_t stripe_start_correction = 0xffffffffffffffff;
         uint64_t right_writer_count = 0;
         uint64_t matches = 0;  // Total matches
@@ -261,13 +261,13 @@ void* phase1_thread(THREADDATA* ptd)
             // no matter what kBC is  y is extract some where from the entry bytes
             uint64_t y_bucket = left_entry.y / kBC;
 
-            if (!bMatch) {
+            if (!bMatch) {  // if not start matching
                 if (ignorebucket == 0xffffffffffffffff) {
                     ignorebucket = y_bucket;  // set to current bucket if not set
                 } else {
-                    if ((y_bucket != ignorebucket)) {
+                    if ((y_bucket != ignorebucket)) {  // first different bucket
                         bucket = y_bucket;
-                        bMatch = true;
+                        bMatch = true;  // start matching
                         // only set once in the inner loop
                         // start matching
                         // set @bucket baseline
@@ -295,11 +295,10 @@ void* phase1_thread(THREADDATA* ptd)
                 // so now we can compare entries in both buckets to find matches. If two entries
                 // match, match, the result is written to the right table. However the writing
                 // happens in the next iteration of the loop, since we need to remap positions.
-                uint16_t idx_L[10000];
-                uint16_t idx_R[10000];
-                int32_t idx_count = 0;
-
                 if (!bucket_L.empty()) {
+                    uint16_t idx_L[10000];
+                    uint16_t idx_R[10000];
+                    int32_t idx_count = 0;
                     not_dropped.clear();
 
                     if (!bucket_R.empty()) {
@@ -312,7 +311,7 @@ void* phase1_thread(THREADDATA* ptd)
                         }
                         // We mark entries as used if they took part in a match.
                         for (int32_t i = 0; i < idx_count; i++) {
-                            bucket_L[idx_L[i]].used = true;
+                            bucket_L[idx_L[i]].used = true;  // only set l until the end
                             if (end_of_table) {
                                 bucket_R[idx_R[i]].used = true;
                             }
@@ -489,6 +488,7 @@ void* phase1_thread(THREADDATA* ptd)
                         bStripeStartPair = true;
                 }
 
+                // finally we handle the new coming entry
                 if (y_bucket == bucket + 2) {
                     // We saw a bucket that is 2 more than the current,
                     // so we just set L = R, and R = [entry]
@@ -506,7 +506,7 @@ void* phase1_thread(THREADDATA* ptd)
                     bucket_L.emplace_back(std::move(left_entry));
                     bucket_R.clear();
                 }
-            }
+            }  // y_bucket > bucket + 1
             // Increase the read pointer in the left table, by one
             ++pos;
         }
@@ -640,7 +640,7 @@ std::vector<uint64_t> RunPhase1(
     globals.stripe_size = stripe_size;  // default 65535
     globals.num_threads = num_threads;
     Timer f1_start_time;
-    F1Calculator _(k, id); // init static variable
+    F1Calculator _(k, id);  // init static variable
     uint64_t x = 0;
 
     uint32_t const t1_entry_size_bytes = EntrySizes::GetMaxEntrySize(k, 1, true);
