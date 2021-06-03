@@ -11,6 +11,8 @@ void main()
 try {
     auto memo = string("memo");
     auto id = vector<uint8_t>(32, 0);
+    //auto num_threads = thread::hardware_concurrency();
+    auto num_threads = 1;
     DiskPlotter().CreatePlotDisk(
         ".",
         ".",
@@ -24,7 +26,7 @@ try {
         0,
         64,
         0,
-        thread::hardware_concurrency());
+        num_threads);
 } catch (...) {
     throw;
 }

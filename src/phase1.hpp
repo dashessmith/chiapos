@@ -640,7 +640,7 @@ std::vector<uint64_t> RunPhase1(
     globals.stripe_size = stripe_size;  // default 65535
     globals.num_threads = num_threads;
     Timer f1_start_time;
-    F1Calculator f1(k, id);
+    F1Calculator _(k, id); // init static variable
     uint64_t x = 0;
 
     uint32_t const t1_entry_size_bytes = EntrySizes::GetMaxEntrySize(k, 1, true);
@@ -685,6 +685,12 @@ std::vector<uint64_t> RunPhase1(
     // the next table. This is the left table index.
     for (uint8_t table_index = 1; table_index < 7; table_index++) {
         Timer table_timer;
+        // 1 => 32
+        // 2 => 64
+        // 3 => 128
+        // 4 => 128
+        // 5 => 96
+        // 6 => 64
         uint8_t const metadata_size = kVectorLens[table_index + 1] * k;
 
         // Determines how many bytes the entries in our left and right tables will take up.
