@@ -32,6 +32,13 @@
 #include <string>
 #include <vector>
 
+#include "phases.hpp"
+//
+#include "phase1.hpp"
+#include "phase2.hpp"
+#include "phase3.hpp"
+#include "phase4.hpp"
+//
 #include "b17phase2.hpp"
 #include "b17phase3.hpp"
 #include "b17phase4.hpp"
@@ -39,11 +46,6 @@
 #include "chia_filesystem.hpp"
 #include "encoding.hpp"
 #include "exceptions.hpp"
-#include "phase1.hpp"
-#include "phase2.hpp"
-#include "phase3.hpp"
-#include "phase4.hpp"
-#include "phases.hpp"
 #include "pos_constants.hpp"
 #include "sort_manager.hpp"
 #include "util.hpp"

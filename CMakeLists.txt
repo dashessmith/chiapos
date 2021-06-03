@@ -145,6 +145,12 @@ add_executable(RunTests
     ${BLAKE3_SRC}
 )
 
+add_executable(zhytest
+    tests/zhytest.cpp
+    src/chacha8.c
+    ${BLAKE3_SRC}
+)
+
 find_package(Threads REQUIRED)
 
 add_library(uint128 STATIC uint128_t/uint128_t.cpp)
@@ -153,6 +159,7 @@ target_include_directories(uint128 PUBLIC uint128_t)
 target_compile_features(fse PUBLIC cxx_std_17)
 target_compile_features(chiapos PUBLIC cxx_std_17)
 target_compile_features(RunTests PUBLIC cxx_std_17)
+target_compile_features(zhytest PUBLIC cxx_std_17)
 
 if (${CMAKE_SYSTEM_NAME} MATCHES "Darwin")
   target_link_libraries(chiapos PRIVATE fse Threads::Threads)
@@ -170,10 +177,12 @@ elseif (MSVC)
   target_link_libraries(chiapos PRIVATE fse Threads::Threads uint128)
   target_link_libraries(ProofOfSpace fse Threads::Threads uint128)
   target_link_libraries(RunTests fse Threads::Threads uint128)
+  target_link_libraries(zhytest fse Threads::Threads uint128)
 else()
   target_link_libraries(chiapos PRIVATE fse stdc++fs Threads::Threads)
   target_link_libraries(ProofOfSpace fse stdc++fs Threads::Threads)
   target_link_libraries(RunTests fse stdc++fs Threads::Threads)
+  target_link_libraries(zhytest fse stdc++fs Threads::Threads)
 endif()
 
 enable_testing()
