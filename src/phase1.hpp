@@ -166,7 +166,8 @@ void* phase1_thread(THREADDATA* ptd)
     uint64_t threadstripes = (totalstripes + globals.num_threads - 1) / globals.num_threads;
 
     for (uint64_t stripe = 0; stripe < threadstripes; stripe++) {
-        // thread stripe rand [pos, endpos) entries, table entries offset
+        // thread stripe rand [pos+3, endpos+3) entries, table entries offset
+        // @pos is entry index of the table
         uint64_t pos = (stripe * globals.num_threads + ptd->index) * globals.stripe_size;
         uint64_t const endpos = pos + globals.stripe_size + 1;  // one y entry value overlap
         // stripe begin bytes, pos in bytes
@@ -191,12 +192,20 @@ void* phase1_thread(THREADDATA* ptd)
         // ignore the this bucket, which may cause data loss
         uint64_t ignorebucket = 0xffffffffffffffff;
         bool bMatch = false;
+        // ********************************************************************
+        // ********************************************************************
+        // these variables for take use of the edge bucket
+        // every stripe will take the first 3 buckets of next stripe
+        // while ignore the first three buckets
         bool bFirstStripeOvertimePair = false;
         bool bSecondStripOvertimePair = false;
         bool bThirdStripeOvertimePair = false;
-
-        bool bStripePregamePair = false;
-        bool bStripeStartPair = false;  // first pair of bucket l ,r
+        // stripe |partial,bucket1,bucket2,bucket3... partial | partial,  bucketn1,bucket2|
+        //                                            |they^one^bucket|
+        bool bStripePregamePair = false;  // first pair of the stripe
+        bool bStripeStartPair = false;    // first pair of the stripe but one
+        // ********************************************************************
+        // ********************************************************************
         bool need_new_bucket = false;
         bool first_thread = ptd->index % globals.num_threads == 0;
         bool last_thread = ptd->index % globals.num_threads == globals.num_threads - 1;
@@ -476,6 +485,8 @@ void* phase1_thread(THREADDATA* ptd)
                 }
 
                 if (pos >= endpos) {
+                    // handle next three buckets for next adjacent stripe
+                    // then leave for loop the next stripe
                     if (!bFirstStripeOvertimePair)
                         bFirstStripeOvertimePair = true;
                     else if (!bSecondStripOvertimePair)
@@ -486,6 +497,7 @@ void* phase1_thread(THREADDATA* ptd)
                         break;
                     }
                 } else {
+                    // first three buckets will be handled by prev adjacent stripe
                     if (!bStripePregamePair)
                         bStripePregamePair = true;
                     else if (!bStripeStartPair)
