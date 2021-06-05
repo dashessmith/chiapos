@@ -117,6 +117,512 @@ PlotEntry GetLeftEntry(
     return left_entry;
 }
 
+auto phase1_loopentry(
+    uint64_t pos,
+    uint64_t prevtableentries,
+    bool& end_of_table,
+    uint64_t& left_reader,
+    uint32_t entry_size_bytes,
+    uint8_t table_index,
+    uint8_t k,
+    uint8_t metadata_size,
+    uint8_t pos_size,
+    bool& bMatch,
+    uint64_t& ignorebucket,
+    uint64_t& bucket,
+    uint64_t& stripe_left_writer_count,
+    uint64_t& R_position_base,
+    std::vector<PlotEntry>& bucket_L,
+    std::vector<PlotEntry>& bucket_R,
+    FxCalculator& f,
+    std::unique_ptr<uint16_t[]>& L_position_map,
+    std::unique_ptr<uint16_t[]>& R_position_map,
+    uint16_t position_map_size,
+    bool& bStripePregamePair,
+    bool& bStripeStartPair,
+    uint64_t& stripe_start_correction,
+    uint64_t& left_writer_count,
+    uint64_t left_buf_entries,
+    std::unique_ptr<uint8_t[]>& left_writer_buf,
+    uint32_t compressed_entry_size_bytes,
+    std::vector<std::tuple<PlotEntry, PlotEntry, std::pair<Bits, Bits>>>& current_entries_to_write,
+    std::vector<std::tuple<PlotEntry, PlotEntry, std::pair<Bits, Bits>>>& future_entries_to_write,
+    uint64_t& matches,
+    uint64_t& right_writer_count,
+    uint64_t right_buf_entries,
+    std::unique_ptr<uint8_t[]>& right_writer_buf,
+    uint64_t right_entry_size_bytes,
+    uint64_t endpos,
+    bool& bFirstStripeOvertimePair,
+    bool& bSecondStripOvertimePair,
+    bool& bThirdStripeOvertimePair,
+    std::vector<PlotEntry*>& not_dropped) -> bool
+{
+    PlotEntry left_entry = PlotEntry();
+    if (pos >= prevtableentries) {
+        end_of_table = true;
+        left_entry.y = 0;
+        left_entry.left_metadata = 0;
+        left_entry.right_metadata = 0;
+        left_entry.used = false;
+    } else {
+        // Reads a left entry from disk
+        uint8_t* left_buf = globals.L_sort_manager->ReadEntry(left_reader);
+        left_reader += entry_size_bytes;
+        // [entry_bytes]
+        left_entry = GetLeftEntry(table_index, left_buf, k, metadata_size, pos_size);
+    }
+
+    // This is not the pos that was read from disk,but the position of the entry we read,
+    // within L table.
+    left_entry.pos = pos;     // entry index in the whole table
+    left_entry.used = false;  // initiate not used
+    // no matter what kBC is  y is extract some where from the entry bytes
+    uint64_t y_bucket = left_entry.y / kBC;
+
+    if (!bMatch) {  // if not start matching
+        if (ignorebucket == 0xffffffffffffffff) {
+            ignorebucket = y_bucket;              // set to current bucket if not set
+        } else if ((y_bucket != ignorebucket)) {  // first different bucket
+            bucket = y_bucket;
+            bMatch = true;  // start matching
+            // only set once in the inner loop
+            // start matching
+            // set @bucket baseline
+        }
+    }
+    if (!bMatch) {  // filered by same thread
+        stripe_left_writer_count++;
+        R_position_base = stripe_left_writer_count;
+        return true;
+    }
+
+    // if come here, bMatch has to be true
+    // bucket has set
+    // Keep reading left entries into bucket_L and R, until we run out of things
+    // @y_bucket new comer, y_bucket is increaed, as underlying buffer is sorted
+    if (y_bucket == bucket) {               // bucket = y_bucket
+        bucket_L.emplace_back(left_entry);  // @bucket_L/R stripe loop variable
+        return true;
+    }
+    if (y_bucket == bucket + 1) {  // y_bucket == 1 ?
+        bucket_R.emplace_back(left_entry);
+        return true;
+    }
+    // y_bucket > bucket + 1, means no more y_bucket will less then this
+    // cout << "matching! " << bucket << " and " << bucket + 1 << endl;
+    // This is reached when we have finished adding stuff to bucket_R and bucket_L,
+    // so now we can compare entries in both buckets to find matches. If two entries
+    // match, match, the result is written to the right table. However the writing
+    // happens in the next iteration of the loop, since we need to remap positions.
+    int32_t idx_count = 0;
+    uint16_t idx_L[10000];
+    uint16_t idx_R[10000];
+    if (!bucket_L.empty()) {
+        not_dropped.clear();
+
+        if (!bucket_R.empty()) {
+            // Compute all matches between the two buckets and save indeces.
+            // @f is a function variable, which has some state
+            idx_count = f.FindMatches(bucket_L, bucket_R, idx_L, idx_R);
+            if (idx_count >= 10000) {
+                std::cout << "sanity check: idx_count exceeded 10000!" << std::endl;
+                exit(0);
+            }
+            // We mark entries as used if they took part in a match.
+            for (int32_t i = 0; i < idx_count; i++) {
+                bucket_L[idx_L[i]].used = true;  // only set l until the end
+                if (end_of_table) {
+                    bucket_R[idx_R[i]].used = true;
+                }
+            }
+        }
+
+        // Adds L_bucket entries that are used to not_dropped. They are used if they
+        // either matched with something to the left (in the previous iteration), or
+        // matched with something in bucket_R (in this iteration).
+        for (auto& L_entry : bucket_R) {
+            if (L_entry.used) {
+                not_dropped.emplace_back(&L_entry);
+            }
+        }
+        // In the last two buckets, we will not get a chance to enter the next
+        // iteration due to breaking from loop. Therefore to write the final
+        // bucket in this iteration, we have to add the R entries to the
+        // not_dropped list.
+        if (end_of_table) {
+            for (auto& R_entry : bucket_R)
+                if (R_entry.used) {
+                    not_dropped.emplace_back(&R_entry);
+                }
+        }
+    }
+    // We keep maps from old positions to new positions. We only need two maps,
+    // one for L bucket and one for R bucket, and we cycle through them. Map
+    // keys are stored as positions % 2^10 for efficiency. Map values are stored
+    // as offsets from the base position for that bucket, for efficiency.
+    std::swap(L_position_map, R_position_map);
+    auto L_position_base = R_position_base;
+    R_position_base = stripe_left_writer_count;
+
+    for (PlotEntry*& entry : not_dropped) {
+        // The new position for this entry = the total amount of thing written
+        // to L so far. Since we only write entries in not_dropped, about 14% of
+        // entries are dropped.
+        R_position_map[entry->pos % position_map_size] = stripe_left_writer_count - R_position_base;
+
+        if (bStripeStartPair) {
+            if (stripe_start_correction == 0xffffffffffffffff) {
+                stripe_start_correction = stripe_left_writer_count;
+            }
+
+            if (left_writer_count >= left_buf_entries) {
+                throw InvalidStateException("Left writer count overrun");
+            }
+            uint8_t* tmp_buf =
+                left_writer_buf.get() + left_writer_count * compressed_entry_size_bytes;
+
+            left_writer_count++;
+            // memset(tmp_buf, 0xff, compressed_entry_size_bytes);
+
+            // Rewrite left entry with just pos and offset, to reduce working space
+            uint64_t new_left_entry;
+            if (table_index == 1)
+                new_left_entry = entry->left_metadata;
+            else
+                new_left_entry = entry->read_posoffset;
+            new_left_entry <<= 64 - (table_index == 1 ? k : pos_size + kOffsetSize);
+            Util::IntToEightBytes(tmp_buf, new_left_entry);
+        }
+
+        stripe_left_writer_count++;
+    }
+
+    // Two vectors to keep track of things from previous iteration and from this
+    // iteration.
+    current_entries_to_write = std::move(future_entries_to_write);
+    future_entries_to_write.clear();
+
+    for (int32_t i = 0; i < idx_count; i++) {
+        // the matched pair
+        PlotEntry& L_entry = bucket_L[idx_L[i]];
+        PlotEntry& R_entry = bucket_R[idx_R[i]];
+
+        if (bStripeStartPair)
+            matches++;
+
+        // Sets the R entry to used so that we don't drop in next iteration
+        R_entry.used = true;
+        // Computes the output pair (fx, new_metadata)
+        if (metadata_size <= 128) {
+            const std::pair<Bits, Bits>& f_output = f.CalculateBucket(
+                Bits(L_entry.y, k + kExtraBits),
+                Bits(L_entry.left_metadata, metadata_size),
+                Bits(R_entry.left_metadata, metadata_size));
+            future_entries_to_write.emplace_back(L_entry, R_entry, f_output);
+        } else {
+            // Metadata does not fit into 128 bits
+            const std::pair<Bits, Bits>& f_output = f.CalculateBucket(
+                Bits(L_entry.y, k + kExtraBits),
+                Bits(L_entry.left_metadata, 128) +
+                    Bits(L_entry.right_metadata, metadata_size - 128),
+                Bits(R_entry.left_metadata, 128) +
+                    Bits(R_entry.right_metadata, metadata_size - 128));
+            future_entries_to_write.emplace_back(L_entry, R_entry, f_output);
+        }
+    }
+
+    // At this point, future_entries_to_write contains the matches of buckets L
+    // and R, and current_entries_to_write contains the matches of L and the
+    // bucket left of L. These are the ones that we will write.
+    uint16_t final_current_entry_size = current_entries_to_write.size();
+    if (end_of_table) {
+        // For the final bucket, write the future entries now as well, since we
+        // will break from loop
+        current_entries_to_write.insert(
+            current_entries_to_write.end(),
+            future_entries_to_write.begin(),
+            future_entries_to_write.end());
+    }
+    for (size_t i = 0; i < current_entries_to_write.size(); i++) {
+        const auto& [L_entry, R_entry, f_output] = current_entries_to_write[i];
+
+        // We only need k instead of k + kExtraBits bits for the last table
+        Bits new_entry =
+            table_index + 1 == 7 ? std::get<0>(f_output).Slice(0, k) : std::get<0>(f_output);
+
+        // Maps the new positions. If we hit end of pos, we must write things in
+        // both final_entries to write and current_entries_to_write, which are
+        // in both position maps.
+        uint64_t newlpos = 0;
+        if (!end_of_table || i < final_current_entry_size) {
+            newlpos = L_position_map[L_entry.pos % position_map_size] + L_position_base;
+        } else {
+            newlpos = R_position_map[L_entry.pos % position_map_size] + R_position_base;
+        }
+        uint64_t newrpos = R_position_map[R_entry.pos % position_map_size] + R_position_base;
+        // Position in the previous table
+        new_entry.AppendValue(newlpos, pos_size);
+
+        // Offset for matching entry
+        if (newrpos - newlpos > (1U << kOffsetSize) * 97 / 100) {
+            throw InvalidStateException("Offset too large: " + std::to_string(newrpos - newlpos));
+        }
+
+        new_entry.AppendValue(newrpos - newlpos, kOffsetSize);
+        // New metadata which will be used to compute the next f
+        new_entry += std::get<1>(f_output);
+
+        if (right_writer_count >= right_buf_entries) {
+            throw InvalidStateException("Left writer count overrun");
+        }
+
+        if (bStripeStartPair) {
+            uint8_t* right_buf =
+                right_writer_buf.get() + right_writer_count * right_entry_size_bytes;
+            new_entry.ToBytes(right_buf);
+            right_writer_count++;
+        }
+    }
+    if (pos >= endpos) {
+        // handle next three buckets for next adjacent stripe
+        // then leave for loop the next stripe
+        if (!bFirstStripeOvertimePair)
+            bFirstStripeOvertimePair = true;
+        else if (!bSecondStripOvertimePair)
+            bSecondStripOvertimePair = true;
+        else if (!bThirdStripeOvertimePair)
+            bThirdStripeOvertimePair = true;
+        else
+            return false;
+
+    } else {
+        // first three buckets will be handled by prev adjacent stripe
+        if (!bStripePregamePair)
+            bStripePregamePair = true;
+        else if (!bStripeStartPair)
+            bStripeStartPair = true;
+    }
+
+    // finally we handle the new coming entry
+    if (y_bucket == bucket + 2) {
+        // We saw a bucket that is 2 more than the current,
+        // so we just set L = R, and R = [entry]
+        // _, L, R = L, R, y
+        bucket_L = std::move(bucket_R);
+        bucket_R.clear();
+        bucket_R.emplace_back(std::move(left_entry));
+        ++bucket;
+    } else {
+        // We saw a bucket that >2 more than the current,
+        // so we just set L = [entry], and R = []
+        // _, _, _, L, R = L, R, _, y, _
+        bucket = y_bucket;
+        bucket_L.clear();
+        bucket_L.emplace_back(std::move(left_entry));
+        bucket_R.clear();
+    }
+    // y_bucket > bucket + 1
+    // Increase the read pointer in the left table, by one
+    return true;
+}
+
+void phase1_loopstripe(
+    uint64_t stripe,
+    THREADDATA* ptd,
+    uint32_t entry_size_bytes,
+    uint64_t prevtableentries,
+    uint8_t table_index,
+    uint8_t k,
+    uint8_t metadata_size,
+    uint8_t pos_size,
+    FxCalculator& f,
+    std::unique_ptr<uint16_t[]>& L_position_map,
+    std::unique_ptr<uint16_t[]>& R_position_map,
+    uint16_t position_map_size,
+    uint64_t left_buf_entries,
+    std::unique_ptr<uint8_t[]>& left_writer_buf,
+    uint32_t compressed_entry_size_bytes,
+    uint64_t right_buf_entries,
+    std::unique_ptr<uint8_t[]>& right_writer_buf,
+    uint64_t right_entry_size_bytes,
+    std::vector<FileDisk>* ptmp_1_disks)
+{
+    // thread stripe rand [pos+3, endpos+3) entries, table entries offset
+    // @pos is entry index of the table
+    uint64_t pos = (stripe * globals.num_threads + ptd->index) * globals.stripe_size;
+    uint64_t const endpos = pos + globals.stripe_size + 1;  // one y entry value overlap
+    // stripe begin bytes, pos in bytes
+    uint64_t left_reader = pos * entry_size_bytes;  // table bytes offset
+    uint64_t left_writer_count = 0;                 // left write entries
+    uint64_t stripe_left_writer_count = 0;          // stripe variable
+    uint64_t stripe_start_correction = 0xffffffffffffffff;
+    uint64_t right_writer_count = 0;
+    uint64_t matches = 0;  // Total matches
+
+    // This is a sliding window of entries, since things in bucket i
+    // can match with things in bucket  i + 1. At the end of each bucket,
+    // we find matches between the two previous buckets.
+    std::vector<PlotEntry> bucket_L;
+    std::vector<PlotEntry> bucket_R;
+    std::vector<PlotEntry*> not_dropped;
+    uint64_t bucket = 0;
+    bool end_of_table = false;  // We finished all entries in the left table
+
+    // at the edge of the stripe,
+    // one bucket may sperate seperate to adjacent stripes
+    // ignore the this bucket, which may cause data loss
+    uint64_t ignorebucket = 0xffffffffffffffff;
+    bool bMatch = false;
+    // ********************************************************************
+    // ********************************************************************
+    // these variables for take use of the edge bucket
+    // every stripe will take the first 3 buckets of next stripe
+    // while ignore the first three buckets
+    bool bFirstStripeOvertimePair = false;
+    bool bSecondStripOvertimePair = false;
+    bool bThirdStripeOvertimePair = false;
+    // stripe |partial,bucket1,bucket2,bucket3... partial | partial,  bucketn1,bucket2|
+    //                                            |they^one^bucket|
+    bool bStripePregamePair = false;  // first pair of the stripe
+    bool bStripeStartPair = false;    // first pair of the stripe but one
+    // ********************************************************************
+    // ********************************************************************
+    bool first_thread = ptd->index % globals.num_threads == 0;
+    bool last_thread = ptd->index % globals.num_threads == globals.num_threads - 1;
+
+    uint64_t R_position_base = 0;
+    std::vector<std::tuple<PlotEntry, PlotEntry, std::pair<Bits, Bits>>>
+        current_entries_to_write;  // L, R, _
+    std::vector<std::tuple<PlotEntry, PlotEntry, std::pair<Bits, Bits>>> future_entries_to_write;
+
+    if (pos == 0) {  // first thread
+        bMatch = true;
+        bStripePregamePair = true;
+        bStripeStartPair = true;
+        stripe_left_writer_count = 0;
+        stripe_start_correction = 0;
+    }
+    // first thread goes first
+    Sem::Wait(ptd->theirs);  // why not use std::conditional_variable
+    // first thread left_reader is 0
+    // check if still has enough buffer to read, if not or nearly out, read next bucket
+    bool need_new_bucket = globals.L_sort_manager->CloseToNewBucket(left_reader);
+    if (need_new_bucket) {
+        if (!first_thread) {         // let first thread do it, without wait
+            Sem::Wait(ptd->theirs);  // wait for prev one
+        }
+        // every thread will try to trig new, in queue
+        globals.L_sort_manager->TriggerNewBucket(left_reader);
+    }
+
+    // call prev thread  // first thread is not waiting
+    if (!last_thread) {
+        // Do not post if we are the last thread, because first thread has already
+        // waited for us to finish when it starts each once
+        Sem::Post(ptd->mine);  // i'm done, wake up next one
+    }
+
+    // after sortmgr(shared by all threads) had it's buffer
+    // sanity check, won't loop for that much
+    // for each entry in the stripe
+    for (; pos <= prevtableentries; ++pos) {
+        if (!phase1_loopentry(
+                pos,
+                prevtableentries,
+                end_of_table,
+                left_reader,
+                entry_size_bytes,
+                table_index,
+                k,
+                metadata_size,
+                pos_size,
+                bMatch,
+                ignorebucket,
+                bucket,
+                stripe_left_writer_count,
+                R_position_base,
+                bucket_L,
+                bucket_R,
+                f,
+                L_position_map,
+                R_position_map,
+                position_map_size,
+                bStripePregamePair,
+                bStripeStartPair,
+                stripe_start_correction,
+                left_writer_count,
+                left_buf_entries,
+                left_writer_buf,
+                compressed_entry_size_bytes,
+                current_entries_to_write,
+                future_entries_to_write,
+                matches,
+                right_writer_count,
+                right_buf_entries,
+                right_writer_buf,
+                right_entry_size_bytes,
+                endpos,
+                bFirstStripeOvertimePair,
+                bSecondStripOvertimePair,
+                bThirdStripeOvertimePair,
+                not_dropped)) {
+            break;
+        }
+    }
+
+    // If we needed new bucket, we already waited
+    // Do not wait if we are the first thread, since we are guaranteed that everything is
+    // written
+    if (!need_new_bucket && !first_thread) {
+        Sem::Wait(ptd->theirs);
+    }
+
+    uint32_t const ysize = (table_index + 1 == 7) ? k : k + kExtraBits;
+    uint32_t const startbyte = ysize / 8;
+    uint32_t const endbyte = (ysize + pos_size + 7) / 8 - 1;
+    uint64_t const shiftamt = (8 - ((ysize + pos_size) % 8)) % 8;
+    uint64_t const correction = (globals.left_writer_count - stripe_start_correction) << shiftamt;
+
+    // Correct positions
+    for (uint32_t i = 0; i < right_writer_count; i++) {
+        uint64_t posaccum = 0;
+        uint8_t* entrybuf = right_writer_buf.get() + i * right_entry_size_bytes;
+
+        for (uint32_t j = startbyte; j <= endbyte; j++) {
+            posaccum = (posaccum << 8) | (entrybuf[j]);
+        }
+        posaccum += correction;
+        for (uint32_t j = endbyte; j >= startbyte; --j) {
+            entrybuf[j] = posaccum & 0xff;
+            posaccum = posaccum >> 8;
+        }
+    }
+    if (table_index < 6) {
+        for (uint64_t i = 0; i < right_writer_count; i++) {
+            globals.R_sort_manager->AddToCache(right_writer_buf.get() + i * right_entry_size_bytes);
+        }
+    } else {
+        // Writes out the right table for table 7
+        (*ptmp_1_disks)[table_index + 1].Write(
+            globals.right_writer,
+            right_writer_buf.get(),
+            right_writer_count * right_entry_size_bytes);
+    }
+    globals.right_writer += right_writer_count * right_entry_size_bytes;
+    globals.right_writer_count += right_writer_count;
+
+    (*ptmp_1_disks)[table_index].Write(
+        globals.left_writer,
+        left_writer_buf.get(),
+        left_writer_count * compressed_entry_size_bytes);
+    globals.left_writer += left_writer_count * compressed_entry_size_bytes;
+    globals.left_writer_count += left_writer_count;
+
+    globals.matches += matches;
+    Sem::Post(ptd->mine);
+}
+
 void* phase1_thread(THREADDATA* ptd)
 {
     uint64_t const right_entry_size_bytes = ptd->right_entry_size_bytes;
@@ -165,421 +671,29 @@ void* phase1_thread(THREADDATA* ptd)
     uint64_t totalstripes = (prevtableentries + globals.stripe_size - 1) / globals.stripe_size;
     uint64_t threadstripes = (totalstripes + globals.num_threads - 1) / globals.num_threads;
 
+    // for each stripe
     for (uint64_t stripe = 0; stripe < threadstripes; stripe++) {
-        // thread stripe rand [pos+3, endpos+3) entries, table entries offset
-        // @pos is entry index of the table
-        uint64_t pos = (stripe * globals.num_threads + ptd->index) * globals.stripe_size;
-        uint64_t const endpos = pos + globals.stripe_size + 1;  // one y entry value overlap
-        // stripe begin bytes, pos in bytes
-        uint64_t left_reader = pos * entry_size_bytes;  // table bytes offset
-        uint64_t left_writer_count = 0;                 // left write entries
-        uint64_t stripe_left_writer_count = 0;          // stripe variable
-        uint64_t stripe_start_correction = 0xffffffffffffffff;
-        uint64_t right_writer_count = 0;
-        uint64_t matches = 0;  // Total matches
-
-        // This is a sliding window of entries, since things in bucket i
-        // can match with things in bucket  i + 1. At the end of each bucket,
-        // we find matches between the two previous buckets.
-        std::vector<PlotEntry> bucket_L;
-        std::vector<PlotEntry> bucket_R;
-
-        uint64_t bucket = 0;
-        bool end_of_table = false;  // We finished all entries in the left table
-
-        // at the edge of the stripe,
-        // one bucket may sperate seperate to adjacent stripes
-        // ignore the this bucket, which may cause data loss
-        uint64_t ignorebucket = 0xffffffffffffffff;
-        bool bMatch = false;
-        // ********************************************************************
-        // ********************************************************************
-        // these variables for take use of the edge bucket
-        // every stripe will take the first 3 buckets of next stripe
-        // while ignore the first three buckets
-        bool bFirstStripeOvertimePair = false;
-        bool bSecondStripOvertimePair = false;
-        bool bThirdStripeOvertimePair = false;
-        // stripe |partial,bucket1,bucket2,bucket3... partial | partial,  bucketn1,bucket2|
-        //                                            |they^one^bucket|
-        bool bStripePregamePair = false;  // first pair of the stripe
-        bool bStripeStartPair = false;    // first pair of the stripe but one
-        // ********************************************************************
-        // ********************************************************************
-        bool need_new_bucket = false;
-        bool first_thread = ptd->index % globals.num_threads == 0;
-        bool last_thread = ptd->index % globals.num_threads == globals.num_threads - 1;
-
-        uint64_t L_position_base = 0;
-        uint64_t R_position_base = 0;
-        uint64_t newlpos = 0;
-        uint64_t newrpos = 0;
-        std::vector<std::tuple<PlotEntry, PlotEntry, std::pair<Bits, Bits>>>
-            current_entries_to_write;  // L, R, _
-        std::vector<std::tuple<PlotEntry, PlotEntry, std::pair<Bits, Bits>>>
-            future_entries_to_write;
-        std::vector<PlotEntry*> not_dropped;  // Pointers are stored to avoid copying entries
-
-        if (pos == 0) {  // first thread
-            bMatch = true;
-            bStripePregamePair = true;
-            bStripeStartPair = true;
-            stripe_left_writer_count = 0;
-            stripe_start_correction = 0;
-        }
-        // first thread goes first
-        Sem::Wait(ptd->theirs);  // why not use std::conditional_variable
-        // first thread left_reader is 0
-        // check if still has enough buffer to read, if not or nearly out, read next bucket
-        need_new_bucket = globals.L_sort_manager->CloseToNewBucket(left_reader);
-        if (need_new_bucket) {
-            if (!first_thread) {         // let first thread do it, without wait
-                Sem::Wait(ptd->theirs);  // wait for prev one
-            }
-            // every thread will try to trig new, in queue
-            globals.L_sort_manager->TriggerNewBucket(left_reader);
-        }
-
-        // call prev thread  // first thread is not waiting
-        if (!last_thread) {
-            // Do not post if we are the last thread, because first thread has already
-            // waited for us to finish when it starts each once
-            Sem::Post(ptd->mine);  // i'm done, wake up next one
-        }
-
-        // after sortmgr(shared by all threads) had it's buffer
-        // sanity check, won't loop for that much
-        // for each entry in the stripe
-        while (pos <= prevtableentries) {
-            PlotEntry left_entry = PlotEntry();
-            if (pos >= prevtableentries) {
-                end_of_table = true;
-                left_entry.y = 0;
-                left_entry.left_metadata = 0;
-                left_entry.right_metadata = 0;
-                left_entry.used = false;
-            } else {
-                // Reads a left entry from disk
-                uint8_t* left_buf = globals.L_sort_manager->ReadEntry(left_reader);
-                left_reader += entry_size_bytes;
-                // [entry_bytes]
-                left_entry = GetLeftEntry(table_index, left_buf, k, metadata_size, pos_size);
-            }
-
-            // This is not the pos that was read from disk,but the position of the entry we read,
-            // within L table.
-            left_entry.pos = pos;     // entry index in the whole table
-            left_entry.used = false;  // initiate not used
-            // no matter what kBC is  y is extract some where from the entry bytes
-            uint64_t y_bucket = left_entry.y / kBC;
-
-            if (!bMatch) {  // if not start matching
-                if (ignorebucket == 0xffffffffffffffff) {
-                    ignorebucket = y_bucket;  // set to current bucket if not set
-                } else {
-                    if ((y_bucket != ignorebucket)) {  // first different bucket
-                        bucket = y_bucket;
-                        bMatch = true;  // start matching
-                        // only set once in the inner loop
-                        // start matching
-                        // set @bucket baseline
-                    }
-                }
-            }
-            if (!bMatch) {  // filered by same thread
-                stripe_left_writer_count++;
-                R_position_base = stripe_left_writer_count;
-                pos++;
-                continue;
-            }
-
-            // if come here, bMatch has to be true
-            // bucket has set
-            // Keep reading left entries into bucket_L and R, until we run out of things
-            // @y_bucket new comer, y_bucket is increaed, as underlying buffer is sorted
-            if (y_bucket == bucket) {               // bucket = y_bucket
-                bucket_L.emplace_back(left_entry);  // @bucket_L/R stripe loop variable
-            } else if (y_bucket == bucket + 1) {    // y_bucket == 1 ?
-                bucket_R.emplace_back(left_entry);
-            } else {  // y_bucket > bucket + 1, means no more y_bucket will less then this
-                // cout << "matching! " << bucket << " and " << bucket + 1 << endl;
-                // This is reached when we have finished adding stuff to bucket_R and bucket_L,
-                // so now we can compare entries in both buckets to find matches. If two entries
-                // match, match, the result is written to the right table. However the writing
-                // happens in the next iteration of the loop, since we need to remap positions.
-                if (!bucket_L.empty()) {
-                    uint16_t idx_L[10000];
-                    uint16_t idx_R[10000];
-                    int32_t idx_count = 0;
-                    not_dropped.clear();
-
-                    if (!bucket_R.empty()) {
-                        // Compute all matches between the two buckets and save indeces.
-                        // @f is a function variable, which has some state
-                        idx_count = f.FindMatches(bucket_L, bucket_R, idx_L, idx_R);
-                        if (idx_count >= 10000) {
-                            std::cout << "sanity check: idx_count exceeded 10000!" << std::endl;
-                            exit(0);
-                        }
-                        // We mark entries as used if they took part in a match.
-                        for (int32_t i = 0; i < idx_count; i++) {
-                            bucket_L[idx_L[i]].used = true;  // only set l until the end
-                            if (end_of_table) {
-                                bucket_R[idx_R[i]].used = true;
-                            }
-                        }
-                    }
-
-                    // Adds L_bucket entries that are used to not_dropped. They are used if they
-                    // either matched with something to the left (in the previous iteration), or
-                    // matched with something in bucket_R (in this iteration).
-                    for (size_t bucket_index = 0; bucket_index < bucket_L.size(); bucket_index++) {
-                        PlotEntry& L_entry = bucket_L[bucket_index];
-                        if (L_entry.used) {
-                            not_dropped.emplace_back(&bucket_L[bucket_index]);
-                        }
-                    }
-                    if (end_of_table) {
-                        // In the last two buckets, we will not get a chance to enter the next
-                        // iteration due to breaking from loop. Therefore to write the final
-                        // bucket in this iteration, we have to add the R entries to the
-                        // not_dropped list.
-                        for (size_t bucket_index = 0; bucket_index < bucket_R.size();
-                             bucket_index++) {
-                            PlotEntry& R_entry = bucket_R[bucket_index];
-                            if (R_entry.used) {
-                                not_dropped.emplace_back(&R_entry);
-                            }
-                        }
-                    }
-                    // We keep maps from old positions to new positions. We only need two maps,
-                    // one for L bucket and one for R bucket, and we cycle through them. Map
-                    // keys are stored as positions % 2^10 for efficiency. Map values are stored
-                    // as offsets from the base position for that bucket, for efficiency.
-                    std::swap(L_position_map, R_position_map);
-                    L_position_base = R_position_base;
-                    R_position_base = stripe_left_writer_count;
-
-                    for (PlotEntry*& entry : not_dropped) {
-                        // The new position for this entry = the total amount of thing written
-                        // to L so far. Since we only write entries in not_dropped, about 14% of
-                        // entries are dropped.
-                        R_position_map[entry->pos % position_map_size] =
-                            stripe_left_writer_count - R_position_base;
-
-                        if (bStripeStartPair) {
-                            if (stripe_start_correction == 0xffffffffffffffff) {
-                                stripe_start_correction = stripe_left_writer_count;
-                            }
-
-                            if (left_writer_count >= left_buf_entries) {
-                                throw InvalidStateException("Left writer count overrun");
-                            }
-                            uint8_t* tmp_buf = left_writer_buf.get() +
-                                               left_writer_count * compressed_entry_size_bytes;
-
-                            left_writer_count++;
-                            // memset(tmp_buf, 0xff, compressed_entry_size_bytes);
-
-                            // Rewrite left entry with just pos and offset, to reduce working space
-                            uint64_t new_left_entry;
-                            if (table_index == 1)
-                                new_left_entry = entry->left_metadata;
-                            else
-                                new_left_entry = entry->read_posoffset;
-                            new_left_entry <<= 64 - (table_index == 1 ? k : pos_size + kOffsetSize);
-                            Util::IntToEightBytes(tmp_buf, new_left_entry);
-                        }
-
-                        stripe_left_writer_count++;
-                    }
-
-                    // Two vectors to keep track of things from previous iteration and from this
-                    // iteration.
-                    current_entries_to_write = std::move(future_entries_to_write);
-                    future_entries_to_write.clear();
-
-                    for (int32_t i = 0; i < idx_count; i++) {
-                        // the matched pair
-                        PlotEntry& L_entry = bucket_L[idx_L[i]];
-                        PlotEntry& R_entry = bucket_R[idx_R[i]];
-
-                        if (bStripeStartPair)
-                            matches++;
-
-                        // Sets the R entry to used so that we don't drop in next iteration
-                        R_entry.used = true;
-                        // Computes the output pair (fx, new_metadata)
-                        if (metadata_size <= 128) {
-                            const std::pair<Bits, Bits>& f_output = f.CalculateBucket(
-                                Bits(L_entry.y, k + kExtraBits),
-                                Bits(L_entry.left_metadata, metadata_size),
-                                Bits(R_entry.left_metadata, metadata_size));
-                            future_entries_to_write.emplace_back(L_entry, R_entry, f_output);
-                        } else {
-                            // Metadata does not fit into 128 bits
-                            const std::pair<Bits, Bits>& f_output = f.CalculateBucket(
-                                Bits(L_entry.y, k + kExtraBits),
-                                Bits(L_entry.left_metadata, 128) +
-                                    Bits(L_entry.right_metadata, metadata_size - 128),
-                                Bits(R_entry.left_metadata, 128) +
-                                    Bits(R_entry.right_metadata, metadata_size - 128));
-                            future_entries_to_write.emplace_back(L_entry, R_entry, f_output);
-                        }
-                    }
-
-                    // At this point, future_entries_to_write contains the matches of buckets L
-                    // and R, and current_entries_to_write contains the matches of L and the
-                    // bucket left of L. These are the ones that we will write.
-                    uint16_t final_current_entry_size = current_entries_to_write.size();
-                    if (end_of_table) {
-                        // For the final bucket, write the future entries now as well, since we
-                        // will break from loop
-                        current_entries_to_write.insert(
-                            current_entries_to_write.end(),
-                            future_entries_to_write.begin(),
-                            future_entries_to_write.end());
-                    }
-                    for (size_t i = 0; i < current_entries_to_write.size(); i++) {
-                        const auto& [L_entry, R_entry, f_output] = current_entries_to_write[i];
-
-                        // We only need k instead of k + kExtraBits bits for the last table
-                        Bits new_entry = table_index + 1 == 7 ? std::get<0>(f_output).Slice(0, k)
-                                                              : std::get<0>(f_output);
-
-                        // Maps the new positions. If we hit end of pos, we must write things in
-                        // both final_entries to write and current_entries_to_write, which are
-                        // in both position maps.
-                        if (!end_of_table || i < final_current_entry_size) {
-                            newlpos =
-                                L_position_map[L_entry.pos % position_map_size] + L_position_base;
-                        } else {
-                            newlpos =
-                                R_position_map[L_entry.pos % position_map_size] + R_position_base;
-                        }
-                        newrpos = R_position_map[R_entry.pos % position_map_size] + R_position_base;
-                        // Position in the previous table
-                        new_entry.AppendValue(newlpos, pos_size);
-
-                        // Offset for matching entry
-                        if (newrpos - newlpos > (1U << kOffsetSize) * 97 / 100) {
-                            throw InvalidStateException(
-                                "Offset too large: " + std::to_string(newrpos - newlpos));
-                        }
-
-                        new_entry.AppendValue(newrpos - newlpos, kOffsetSize);
-                        // New metadata which will be used to compute the next f
-                        new_entry += std::get<1>(f_output);
-
-                        if (right_writer_count >= right_buf_entries) {
-                            throw InvalidStateException("Left writer count overrun");
-                        }
-
-                        if (bStripeStartPair) {
-                            uint8_t* right_buf = right_writer_buf.get() +
-                                                 right_writer_count * right_entry_size_bytes;
-                            new_entry.ToBytes(right_buf);
-                            right_writer_count++;
-                        }
-                    }
-                }
-
-                if (pos >= endpos) {
-                    // handle next three buckets for next adjacent stripe
-                    // then leave for loop the next stripe
-                    if (!bFirstStripeOvertimePair)
-                        bFirstStripeOvertimePair = true;
-                    else if (!bSecondStripOvertimePair)
-                        bSecondStripOvertimePair = true;
-                    else if (!bThirdStripeOvertimePair)
-                        bThirdStripeOvertimePair = true;
-                    else {
-                        break;
-                    }
-                } else {
-                    // first three buckets will be handled by prev adjacent stripe
-                    if (!bStripePregamePair)
-                        bStripePregamePair = true;
-                    else if (!bStripeStartPair)
-                        bStripeStartPair = true;
-                }
-
-                // finally we handle the new coming entry
-                if (y_bucket == bucket + 2) {
-                    // We saw a bucket that is 2 more than the current,
-                    // so we just set L = R, and R = [entry]
-                    // _, L, R = L, R, y
-                    bucket_L = std::move(bucket_R);
-                    bucket_R.clear();
-                    bucket_R.emplace_back(std::move(left_entry));
-                    ++bucket;
-                } else {
-                    // We saw a bucket that >2 more than the current,
-                    // so we just set L = [entry], and R = []
-                    // _, _, _, L, R = L, R, _, y, _
-                    bucket = y_bucket;
-                    bucket_L.clear();
-                    bucket_L.emplace_back(std::move(left_entry));
-                    bucket_R.clear();
-                }
-            }  // y_bucket > bucket + 1
-            // Increase the read pointer in the left table, by one
-            ++pos;
-        }
-
-        // If we needed new bucket, we already waited
-        // Do not wait if we are the first thread, since we are guaranteed that everything is
-        // written
-        if (!need_new_bucket && !first_thread) {
-            Sem::Wait(ptd->theirs);
-        }
-
-        uint32_t const ysize = (table_index + 1 == 7) ? k : k + kExtraBits;
-        uint32_t const startbyte = ysize / 8;
-        uint32_t const endbyte = (ysize + pos_size + 7) / 8 - 1;
-        uint64_t const shiftamt = (8 - ((ysize + pos_size) % 8)) % 8;
-        uint64_t const correction = (globals.left_writer_count - stripe_start_correction)
-                                    << shiftamt;
-
-        // Correct positions
-        for (uint32_t i = 0; i < right_writer_count; i++) {
-            uint64_t posaccum = 0;
-            uint8_t* entrybuf = right_writer_buf.get() + i * right_entry_size_bytes;
-
-            for (uint32_t j = startbyte; j <= endbyte; j++) {
-                posaccum = (posaccum << 8) | (entrybuf[j]);
-            }
-            posaccum += correction;
-            for (uint32_t j = endbyte; j >= startbyte; --j) {
-                entrybuf[j] = posaccum & 0xff;
-                posaccum = posaccum >> 8;
-            }
-        }
-        if (table_index < 6) {
-            for (uint64_t i = 0; i < right_writer_count; i++) {
-                globals.R_sort_manager->AddToCache(
-                    right_writer_buf.get() + i * right_entry_size_bytes);
-            }
-        } else {
-            // Writes out the right table for table 7
-            (*ptmp_1_disks)[table_index + 1].Write(
-                globals.right_writer,
-                right_writer_buf.get(),
-                right_writer_count * right_entry_size_bytes);
-        }
-        globals.right_writer += right_writer_count * right_entry_size_bytes;
-        globals.right_writer_count += right_writer_count;
-
-        (*ptmp_1_disks)[table_index].Write(
-            globals.left_writer,
-            left_writer_buf.get(),
-            left_writer_count * compressed_entry_size_bytes);
-        globals.left_writer += left_writer_count * compressed_entry_size_bytes;
-        globals.left_writer_count += left_writer_count;
-
-        globals.matches += matches;
-        Sem::Post(ptd->mine);
-    }  // for each stripe
+        phase1_loopstripe(
+            stripe,
+            ptd,
+            entry_size_bytes,
+            prevtableentries,
+            table_index,
+            k,
+            metadata_size,
+            pos_size,
+            f,
+            L_position_map,
+            R_position_map,
+            position_map_size,
+            left_buf_entries,
+            left_writer_buf,
+            compressed_entry_size_bytes,
+            right_buf_entries,
+            right_writer_buf,
+            right_entry_size_bytes,
+            ptmp_1_disks);
+    }
 
     return 0;
 }
