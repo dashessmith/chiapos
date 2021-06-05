@@ -500,7 +500,6 @@ void phase1_loopstripe(
         bMatch = true;
         bStripePregamePair = true;
         bStripeStartPair = true;
-        stripe_left_writer_count = 0;
         stripe_start_correction = 0;
     }
     // first thread goes first
