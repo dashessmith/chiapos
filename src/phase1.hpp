@@ -577,6 +577,8 @@ void phase1_loopstripe(
         Sem::Wait(ptd->theirs);
     }
 
+    // -------------------------------------------------------------------------------------
+    // todo : what has done to the right_writer_buf
     uint32_t const ysize = (table_index + 1 == 7) ? k : k + kExtraBits;
     uint32_t const startbyte = ysize / 8;
     uint32_t const endbyte = (ysize + pos_size + 7) / 8 - 1;
@@ -587,7 +589,7 @@ void phase1_loopstripe(
     for (uint32_t i = 0; i < right_writer_count; i++) {
         uint64_t posaccum = 0;
         uint8_t* entrybuf = right_writer_buf.get() + i * right_entry_size_bytes;
-
+        // assign entrybuf to posaccum, with endbyte align to posaccum end
         for (uint32_t j = startbyte; j <= endbyte; j++) {
             posaccum = (posaccum << 8) | (entrybuf[j]);
         }
@@ -597,12 +599,22 @@ void phase1_loopstripe(
             posaccum = posaccum >> 8;
         }
     }
+    // ↑ ----------------------------------------------------------------------------------
+
+    /*
+        flush left, right buffers, to where they belong
+    */
     if (table_index < 6) {
+        // similar to f1thread, which prepare the first bunch of bucket files
+        // prepare for the bucket files for next table iterate
+        // not writen in once, but for many times, accumlating
         for (uint64_t i = 0; i < right_writer_count; i++) {
             globals.R_sort_manager->AddToCache(right_writer_buf.get() + i * right_entry_size_bytes);
         }
     } else {
+        // table7.tmp
         // Writes out the right table for table 7
+        // a directly write at pos
         (*ptmp_1_disks)[table_index + 1].Write(
             globals.right_writer,
             right_writer_buf.get(),
@@ -611,6 +623,17 @@ void phase1_loopstripe(
     globals.right_writer += right_writer_count * right_entry_size_bytes;
     globals.right_writer_count += right_writer_count;
 
+    /*
+        table1       table2       table3       table4       table5      table6
+
+        b stripe  →  b stripe  →  b stripe  →  b stripe  →  b stripe  → b stripe  ----┑
+        b stripe  →  b stripe  →  b stripe  →  b stripe  →  b stripe  → b stripe      |
+        b stripe  →  b stripe  →  b stripe  →  b stripe  →  b stripe  → b stripe      |
+          ↓            ↓            ↓            ↓            ↓           ↓           ↓
+        table1.tmp   table2.tmp   table3.tmp   table4.tmp   table5.tmp  table6.tmp table7.tmp
+    */
+
+    // table<1~6>.tmp
     (*ptmp_1_disks)[table_index].Write(
         globals.left_writer,
         left_writer_buf.get(),
@@ -812,6 +835,7 @@ std::vector<uint64_t> RunPhase1(
 
     // For tables 1 through 6, sort the table, calculate matches, and write
     // the next table. This is the left table index.
+    // 1 .. 6
     for (uint8_t table_index = 1; table_index < 7; table_index++) {
         Timer table_timer;
         // 1 => 32
