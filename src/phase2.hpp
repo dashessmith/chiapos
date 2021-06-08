@@ -15,20 +15,22 @@
 #ifndef SRC_CPP_PHASE2_HPP_
 #define SRC_CPP_PHASE2_HPP_
 
-#include "disk.hpp"
-#include "entry_sizes.hpp"
-#include "sort_manager.hpp"
 #include "bitfield.hpp"
 #include "bitfield_index.hpp"
+#include "disk.hpp"
+#include "entry_sizes.hpp"
 #include "progress.hpp"
+#include "sort_manager.hpp"
 
-struct Phase2Results
-{
-    Disk& disk_for_table(int const table_index)
+struct Phase2Results {
+    Disk &disk_for_table(int const table_index)
     {
-        if (table_index == 1) return table1;
-        else if (table_index == 7) return table7;
-        else return *output_files[table_index - 2];
+        if (table_index == 1)
+            return table1;
+        else if (table_index == 7)
+            return table7;
+        else
+            return *output_files[table_index - 2];
     }
     FilteredDisk table1;
     BufferedDisk table7;
@@ -79,8 +81,7 @@ Phase2Results RunPhase2(
     // At the end of the iteration, we transfer the next_bitfield to the current bitfield
     // to use it to prune the next table to scan.
 
-    int64_t const max_table_size = *std::max_element(table_sizes.begin()
-        , table_sizes.end());
+    int64_t const max_table_size = *std::max_element(table_sizes.begin(), table_sizes.end());
 
     bitfield next_bitfield(max_table_size);
     bitfield current_bitfield(max_table_size);
@@ -94,13 +95,12 @@ Phase2Results RunPhase2(
     // note that we don't iterate over table_index=1. That table is special
     // since it contains different data. We'll do an extra scan of table 1 at
     // the end, just to compact it.
-    for (int table_index = 7; table_index > 1; --table_index) {
-
+    for (int table_index = 7; table_index > 1; --table_index) {  //  7 ~ 2
         std::cout << "Backpropagating on table " << table_index << std::endl;
 
         Timer scan_timer;
 
-        next_bitfield.clear();
+        next_bitfield.clear();  // huge ?
 
         int64_t const table_size = table_sizes[table_index];
         int16_t const entry_size = cdiv(k + kOffsetSize + (table_index == 7 ? k : 0), 8);
@@ -112,9 +112,9 @@ Phase2Results RunPhase2(
         // for table 7
 
         int64_t read_cursor = 0;
-        for (int64_t read_index = 0; read_index < table_size; ++read_index, read_cursor += entry_size)
-        {
-            uint8_t const* entry = disk.Read(read_cursor, entry_size);
+        for (int64_t read_index = 0; read_index < table_size;
+             ++read_index, read_cursor += entry_size) {
+            uint8_t const *entry = disk.Read(read_cursor, entry_size);
 
             uint64_t entry_pos_offset = 0;
             if (table_index == 7) {
@@ -122,8 +122,7 @@ Phase2Results RunPhase2(
                 // next_bitfield
                 entry_pos_offset = Util::SliceInt64FromBytes(entry, k, pos_offset_size);
             } else {
-                if (!current_bitfield.get(read_index))
-                {
+                if (!current_bitfield.get(read_index)) {
                     // This entry should be dropped.
                     continue;
                 }
@@ -171,9 +170,9 @@ Phase2Results RunPhase2(
 
         read_cursor = 0;
         int64_t write_counter = 0;
-        for (int64_t read_index = 0; read_index < table_size; ++read_index, read_cursor += entry_size)
-        {
-            uint8_t const* entry = disk.Read(read_cursor, entry_size);
+        for (int64_t read_index = 0; read_index < table_size;
+             ++read_index, read_cursor += entry_size) {
+            uint8_t const *entry = disk.Read(read_cursor, entry_size);
 
             uint64_t entry_f7 = 0;
             uint64_t entry_pos_offset;
@@ -184,7 +183,8 @@ Phase2Results RunPhase2(
                 entry_pos_offset = Util::SliceInt64FromBytes(entry, k, pos_offset_size);
             } else {
                 // skipping
-                if (!current_bitfield.get(read_index)) continue;
+                if (!current_bitfield.get(read_index))
+                    continue;
 
                 entry_pos_offset = Util::SliceInt64FromBytes(entry, 0, pos_offset_size);
             }
@@ -208,8 +208,7 @@ Phase2Results RunPhase2(
                 Util::IntTo16Bytes(bytes, new_entry);
 
                 disk.Write(read_index * entry_size, bytes, entry_size);
-            }
-            else {
+            } else {
                 // The new entry is slightly different. Metadata is dropped, to
                 // save space, and the counter of the entry is written (sort_key). We
                 // use this instead of (y + pos + offset) since its smaller.
@@ -262,14 +261,14 @@ Phase2Results RunPhase2(
     new_table_sizes[table_index] = current_bitfield.count(0, table_size);
     BufferedDisk disk(&tmp_1_disks[table_index], table_size * entry_size);
 
-    std::cout << "table " << table_index << " new size: " << new_table_sizes[table_index] << std::endl;
+    std::cout << "table " << table_index << " new size: " << new_table_sizes[table_index]
+              << std::endl;
 
     return {
-        FilteredDisk(std::move(disk), std::move(current_bitfield), entry_size)
-        , BufferedDisk(&tmp_1_disks[7], new_table_sizes[7] * new_entry_size)
-        , std::move(output_files)
-        , std::move(new_table_sizes)
-    };
+        FilteredDisk(std::move(disk), std::move(current_bitfield), entry_size),
+        BufferedDisk(&tmp_1_disks[7], new_table_sizes[7] * new_entry_size),
+        std::move(output_files),
+        std::move(new_table_sizes)};
 }
 
 #endif  // SRC_CPP_PHASE2_HPP

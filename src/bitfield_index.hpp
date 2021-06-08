@@ -15,10 +15,10 @@
 #pragma once
 
 #include <algorithm>
+
 #include "bitfield.hpp"
 
-struct bitfield_index
-{
+struct bitfield_index {
     // Cache the number of set bits every kIndexBucket bits.
     // For a bitfield of size 2^32, this means a 32 MiB index
     static inline const int64_t kIndexBucket = 1024;
@@ -49,15 +49,16 @@ struct bitfield_index
         int64_t const aligned_pos = pos & ~uint64_t(63);
 
         uint64_t const aligned_pos_count = bitfield_.count(bucket * kIndexBucket, aligned_pos);
-        uint64_t const offset_count = aligned_pos_count + bitfield_.count(aligned_pos, pos + offset);
+        uint64_t const offset_count =
+            aligned_pos_count + bitfield_.count(aligned_pos, pos + offset);
         uint64_t const pos_count = aligned_pos_count + bitfield_.count(aligned_pos, pos);
 
         assert(offset_count >= pos_count);
 
-        return { base + pos_count, offset_count - pos_count };
+        return {base + pos_count, offset_count - pos_count};
     }
+
 private:
     bitfield const& bitfield_;
     std::vector<uint64_t> index_;
 };
-

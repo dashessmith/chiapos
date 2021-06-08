@@ -16,11 +16,9 @@
 
 #include <memory>
 
-struct bitfield
-{
+struct bitfield {
     explicit bitfield(int64_t size)
-        : buffer_(new uint64_t[(size + 63) / 64])
-        , size_((size + 63) / 64)
+        : buffer_(new uint64_t[(size + 63) / 64]), size_((size + 63) / 64)
     {
         clear();
     }
@@ -37,10 +35,7 @@ struct bitfield
         return (buffer_[bit / 64] & (uint64_t(1) << (bit % 64))) != 0;
     }
 
-    void clear()
-    {
-        std::memset(buffer_.get(), 0, size_ * 8);
-    }
+    void clear() { std::memset(buffer_.get(), 0, size_ * 8); }
 
     int64_t size() const { return size_ * 64; }
 
@@ -76,6 +71,7 @@ struct bitfield
         buffer_.reset();
         size_ = 0;
     }
+
 private:
     std::unique_ptr<uint64_t[]> buffer_;
 

@@ -130,7 +130,8 @@ auto phase1_loopentry(
     bool& bMatch,
     uint64_t& ignorebucket,
     uint64_t& bucket,
-    uint64_t& stripe_left_writer_count,
+    uint64_t& stripe_left_writer_count,  // ignore bucket count(may be matched before?) + matched
+                                         // count in stripe
     uint64_t& R_position_base,
     std::vector<PlotEntry>& bucket_L,
     std::vector<PlotEntry>& bucket_R,
@@ -194,7 +195,7 @@ auto phase1_loopentry(
     if (!bMatch) {  // filered by same thread
         stripe_left_writer_count++;
         R_position_base = stripe_left_writer_count;
-        return true;
+        return true;  // return continue
     }
 
     // if come here, bMatch has to be true
@@ -203,20 +204,21 @@ auto phase1_loopentry(
     // @y_bucket new comer, y_bucket is increaed, as underlying buffer is sorted
     if (y_bucket == bucket) {               // bucket = y_bucket
         bucket_L.emplace_back(left_entry);  // @bucket_L/R stripe loop variable
-        return true;
+        return true;                        // return continue
     }
     if (y_bucket == bucket + 1) {  // y_bucket == 1 ?
         bucket_R.emplace_back(left_entry);
-        return true;
+        return true;  // return continue
     }
     // y_bucket > bucket + 1, means no more y_bucket will less then this
+    // as the buffer suck by sort manager is already sorted in memory
     // cout << "matching! " << bucket << " and " << bucket + 1 << endl;
     // This is reached when we have finished adding stuff to bucket_R and bucket_L,
     // so now we can compare entries in both buckets to find matches. If two entries
     // match, match, the result is written to the right table. However the writing
     // happens in the next iteration of the loop, since we need to remap positions.
-    int32_t idx_count = 0;
-    uint16_t idx_L[10000];
+    int32_t idx_count = 0;  // total matches in l/r
+    uint16_t idx_L[10000];  // matched pair index in bucket l/r
     uint16_t idx_R[10000];
     if (!bucket_L.empty()) {
         not_dropped.clear();
