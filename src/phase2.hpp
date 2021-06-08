@@ -95,7 +95,7 @@ Phase2Results RunPhase2(
     // note that we don't iterate over table_index=1. That table is special
     // since it contains different data. We'll do an extra scan of table 1 at
     // the end, just to compact it.
-    for (int table_index = 7; table_index > 1; --table_index) {  //  7 ~ 2
+    for (int table_index = 7; table_index > 1; --table_index) {
         std::cout << "Backpropagating on table " << table_index << std::endl;
 
         Timer scan_timer;
