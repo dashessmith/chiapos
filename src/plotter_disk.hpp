@@ -348,7 +348,7 @@ class DiskPlotter {
             std::fstream right_writer(plot_filename, std::fstream::out | std::fstream::in | std::fstream::binary);
 
             left_reader.seekg(begin_byte);
-            right_writer.seekp(begin_byte_next);
+            right_writer.seekp(begin_byte_next); // append to the end, file grows?
 
             FxCalculator f(k, table_index + 1, id);
 

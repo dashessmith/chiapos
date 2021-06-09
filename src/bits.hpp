@@ -395,6 +395,7 @@ template <class T> class BitsGeneric {
 
         // Append 0s to complete the last byte.
         uint8_t shift = Util::ByteAlign(last_size_) - last_size_;
+        // move left a little bit to align the left end byte
         uint128_t val = values_[values_.size() - 1] << (shift);
         uint16_t cnt = 0;
         // Extract byte-by-byte from the last bucket.
@@ -455,7 +456,7 @@ template <class T> class BitsGeneric {
         return values_[0];
     }
 
-    uint16_t GetSize() const {
+    uint16_t GetSize() const { // bits count
         if (values_.size() == 0) return 0;
         // Full buckets contain each 128 bits, last one contains only 'last_size_' bits.
         return (values_.size() - 1) * 128 + last_size_;
@@ -513,7 +514,7 @@ template <class T> class BitsGeneric {
     }
 
     T values_;
-    uint8_t last_size_;
+    uint8_t last_size_; // used bytes in last uint128
 };
 
 template<class T>
