@@ -45,7 +45,7 @@ const uint8_t kExtraBitsPow = 1 << kExtraBits;
 // elements match with each other. Two elements must be in adjacent buckets to match.
 const uint16_t kB = 60;
 const uint16_t kC = 509;
-const uint16_t kBC = kB * kC;
+const uint16_t kBC = kB * kC; // 30540
 
 // This (times k) is the length of the metadata that must be kept for each entry. For example,
 // for a tbale 4 entry, we must keep 4k additional bits for each entry, which is used to
