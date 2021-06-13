@@ -75,7 +75,7 @@ public:
             fs::path const bucket_filename =
                 fs::path(tmp_dirname) /
                 fs::path(filename + ".sort_bucket_" + bucket_number_padded.str() + ".tmp");
-            fs::remove(bucket_filename);
+            //fs::remove(bucket_filename);
 
             buckets_.emplace_back(
                 FileDisk(bucket_filename));
@@ -217,7 +217,7 @@ public:
         for (auto& b : buckets_) {
             std::string const filename = b.file.GetFileName();
             b.underlying_file.Close();
-            fs::remove(fs::path(filename));
+            //fs::remove(fs::path(filename));
         }
     }
 
@@ -323,7 +323,7 @@ private:
         // Deletes the bucket file
         std::string filename = b.file.GetFileName();
         b.underlying_file.Close();
-        fs::remove(fs::path(filename));
+        //fs::remove(fs::path(filename));
 
         this->final_position_start = this->final_position_end;
         this->final_position_end += b.write_pointer;

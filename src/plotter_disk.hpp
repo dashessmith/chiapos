@@ -362,7 +362,7 @@ public:
         std::ios_base::sync_with_stdio(true);
 
         for (fs::path p : tmp_1_filenames) {
-            fs::remove(p);
+            //fs::remove(p);
         }
 
         bool bCopied = false;
