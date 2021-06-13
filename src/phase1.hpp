@@ -634,8 +634,8 @@ std::vector<uint64_t> RunPhase1(
     }
 
     uint64_t prevtableentries = 1ULL << k;
-    f1_start_time.PrintElapsed("F1 complete, time:");
     globals.L_sort_manager->FlushCache();
+	f1_start_time.PrintElapsed("F1 complete, time:");
     table_sizes[1] = x + 1;
 
     // Store positions to previous tables, in k bits.
